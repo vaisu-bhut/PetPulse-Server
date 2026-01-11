@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: petpulse_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: petpulse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: petpulse_redis
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    container_name: petpulse_server
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://user:password@db:5432/petpulse
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: debug
+    depends_on:
+      - db
+    develop:
+      watch:
+        - action: rebuild
+          path: ./src
+
+volumes:
+  postgres_data:

@@ -1,0 +1,23 @@
+# Leverages cargo-chef for dependency caching
+FROM rust:alpine AS chef
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+RUN cargo install cargo-chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+# Build dependencies - this is the caching layer!
+RUN cargo chef cook --release --recipe-path recipe.json
+# Build application
+COPY . .
+RUN cargo build --release --bin petpulse-server
+
+FROM alpine:latest AS runtime
+WORKDIR /app
+RUN apk add --no-cache openssl ca-certificates
+COPY --from=builder /app/target/release/petpulse-server /app/server
+CMD ["/app/server"]
