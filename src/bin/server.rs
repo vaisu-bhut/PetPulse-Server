@@ -5,12 +5,7 @@ use axum::{
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-mod api;
-mod entities;
-mod migrator;
-mod gemini;
-mod worker;
+use petpulse_server::{api, migrator};
 
 #[tokio::main]
 async fn main() {
@@ -35,13 +30,6 @@ async fn main() {
     // Run migrations
     use sea_orm_migration::MigratorTrait;
     migrator::Migrator::up(&db, None).await.expect("Failed to run migrations");
-
-    // Start Workers
-    let worker_redis = redis_client.clone();
-    let worker_db = db.clone();
-    tokio::spawn(async move {
-        worker::start_workers(worker_redis, worker_db, 3).await;
-    });
 
     // Use app logic directly here
     let app = app(db, redis_client);

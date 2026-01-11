@@ -17,8 +17,10 @@ services:
     ports:
       - "6379:6379"
 
-  app:
-    build: .
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
     container_name: petpulse_server
     ports:
       - "3000:3000"
@@ -26,12 +28,34 @@ services:
       DATABASE_URL: postgres://user:password@db:5432/petpulse
       REDIS_URL: redis://redis:6379
       RUST_LOG: debug
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     depends_on:
       - db
+      - redis
     develop:
       watch:
         - action: rebuild
           path: ./src
+          target: /app/server
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: petpulse_worker
+    environment:
+      DATABASE_URL: postgres://user:password@db:5432/petpulse
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: debug
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    depends_on:
+      - db
+      - redis
+    develop:
+      watch:
+        - action: rebuild
+          path: ./src
+          target: /app/worker
 
 volumes:
   postgres_data:

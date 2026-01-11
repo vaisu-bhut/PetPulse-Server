@@ -1,0 +1,80 @@
+name: Build and Publish
+
+on:
+  push:
+    branches: ["main", "preview"]
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'Clestiq-PetPulse'
+
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - id: "auth"
+        name: "Authenticate to Google Cloud"
+        uses: "google-github-actions/auth@v2"
+        with:
+          credentials_json: "${{ secrets.GCP_CREDENTIALS }}"
+
+      - name: "Set up Cloud SDK"
+        uses: "google-github-actions/setup-gcloud@v2"
+
+      - name: "Configure Docker for Artifact Registry"
+        run: |
+          gcloud auth configure-docker ${{ vars.REGION }}-docker.pkg.dev
+
+      - name: Extract Metadata (Server)
+        id: meta-server
+        run: |
+          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/${{ vars.REPO_NAME }}/petpulse-server"
+          TAGS=""
+
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            TAGS="${BASE_IMAGE}:production,${BASE_IMAGE}:latest"
+          elif [[ "${{ github.ref_name }}" == "preview" ]]; then
+            TAGS="${BASE_IMAGE}:preview,${BASE_IMAGE}:preview-latest"
+          else
+            TAGS="${BASE_IMAGE}:dev-${{ github.sha }}"
+          fi
+
+          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Extract Metadata (Worker)
+        id: meta-worker
+        run: |
+          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/${{ vars.REPO_NAME }}/petpulse-worker"
+          TAGS=""
+
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            TAGS="${BASE_IMAGE}:production,${BASE_IMAGE}:latest"
+          elif [[ "${{ github.ref_name }}" == "preview" ]]; then
+            TAGS="${BASE_IMAGE}:preview,${BASE_IMAGE}:preview-latest"
+          else
+            TAGS="${BASE_IMAGE}:dev-${{ github.sha }}"
+          fi
+
+          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Server
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.server
+          push: true
+          tags: ${{ steps.meta-server.outputs.TAGS }}
+
+      - name: Build and Push Worker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ${{ steps.meta-worker.outputs.TAGS }}

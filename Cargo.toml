@@ -3,6 +3,18 @@ name = "petpulse-server"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "petpulse_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "worker"
+path = "src/bin/worker.rs"
+
 [dependencies]
 axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1.0", features = ["full"] }

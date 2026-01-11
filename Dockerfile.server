@@ -14,10 +14,10 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cargo build --release --bin petpulse-server
+RUN cargo build --release --bin server
 
 FROM alpine:latest AS runtime
 WORKDIR /app
 RUN apk add --no-cache openssl ca-certificates
-COPY --from=builder /app/target/release/petpulse-server /app/server
+COPY --from=builder /app/target/release/server /app/server
 CMD ["/app/server"]
