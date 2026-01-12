@@ -27,16 +27,28 @@ jobs:
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@v2"
 
+      - name: "Determine Environment Variables"
+        id: env-vars
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "REPO_NAME=petpulse-production" >> $GITHUB_OUTPUT
+            echo "ENV_NAME=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "preview" ]]; then
+            echo "REPO_NAME=petpulse-preview" >> $GITHUB_OUTPUT
+            echo "ENV_NAME=preview" >> $GITHUB_OUTPUT
+          fi
+
       - name: "Create Artifact Registry Repository"
         run: |
-          if ! gcloud artifacts repositories describe ${{ vars.REPO_NAME }} --location=${{ vars.REGION }} > /dev/null 2>&1; then
-            echo "Repository ${{ vars.REPO_NAME }} does not exist. Creating..."
-            gcloud artifacts repositories create ${{ vars.REPO_NAME }} \
+          REPO="${{ steps.env-vars.outputs.REPO_NAME }}"
+          if ! gcloud artifacts repositories describe $REPO --location=${{ vars.REGION }} > /dev/null 2>&1; then
+            echo "Repository $REPO does not exist. Creating..."
+            gcloud artifacts repositories create $REPO \
               --repository-format=docker \
               --location=${{ vars.REGION }} \
-              --description="Docker repository for PetPulse"
+              --description="Docker repository for PetPulse ${{ steps.env-vars.outputs.ENV_NAME }}"
           else
-            echo "Repository ${{ vars.REPO_NAME }} already exists."
+            echo "Repository $REPO already exists."
           fi
 
       - name: "Configure Docker for Artifact Registry"
@@ -46,34 +58,16 @@ jobs:
       - name: Extract Metadata (Server)
         id: meta-server
         run: |
-          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/${{ vars.REPO_NAME }}/petpulse-server"
-          TAGS=""
-
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            TAGS="${BASE_IMAGE}:production,${BASE_IMAGE}:latest"
-          elif [[ "${{ github.ref_name }}" == "preview" ]]; then
-            TAGS="${BASE_IMAGE}:preview,${BASE_IMAGE}:preview-latest"
-          else
-            TAGS="${BASE_IMAGE}:dev-${{ github.sha }}"
-          fi
-
-          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+          REPO="${{ steps.env-vars.outputs.REPO_NAME }}"
+          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/$REPO/petpulse-server"
+          echo "TAGS=${BASE_IMAGE}:latest" >> $GITHUB_OUTPUT
 
       - name: Extract Metadata (Worker)
         id: meta-worker
         run: |
-          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/${{ vars.REPO_NAME }}/petpulse-worker"
-          TAGS=""
-
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            TAGS="${BASE_IMAGE}:production,${BASE_IMAGE}:latest"
-          elif [[ "${{ github.ref_name }}" == "preview" ]]; then
-            TAGS="${BASE_IMAGE}:preview,${BASE_IMAGE}:preview-latest"
-          else
-            TAGS="${BASE_IMAGE}:dev-${{ github.sha }}"
-          fi
-
-          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+          REPO="${{ steps.env-vars.outputs.REPO_NAME }}"
+          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/$REPO/petpulse-worker"
+          echo "TAGS=${BASE_IMAGE}:latest" >> $GITHUB_OUTPUT
 
       - name: Build and Push Server
         uses: docker/build-push-action@v5
