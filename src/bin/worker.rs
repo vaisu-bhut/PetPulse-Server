@@ -22,10 +22,14 @@ async fn main() {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
     let redis_client = redis::Client::open(redis_url).expect("Invalid Redis URL");
 
+    // GCS Client
+    let gcs_config = google_cloud_storage::client::ClientConfig::default().with_auth().await.unwrap();
+    let gcs_client = google_cloud_storage::client::Client::new(gcs_config);
+
     tracing::info!("Starting background worker...");
     
     // Start Workers
-    worker::start_workers(redis_client, db, 3).await;
+    worker::start_workers(redis_client, db, 3, gcs_client).await;
 
     // Keep the main process alive
     match tokio::signal::ctrl_c().await {

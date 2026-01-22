@@ -27,12 +27,16 @@ async fn main() {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
     let redis_client = redis::Client::open(redis_url).expect("Invalid Redis URL");
 
+    // GCS Client
+    let gcs_config = google_cloud_storage::client::ClientConfig::default().with_auth().await.unwrap();
+    let gcs_client = google_cloud_storage::client::Client::new(gcs_config);
+
     // Run migrations
     use sea_orm_migration::MigratorTrait;
     migrator::Migrator::up(&db, None).await.expect("Failed to run migrations");
 
     // Use app logic directly here
-    let app = app(db, redis_client);
+    let app = app(db, redis_client, gcs_client);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("listening on {}", addr);
@@ -44,7 +48,7 @@ async fn health_check() -> &'static str {
     "OK"
 }
 
-fn app(db: DatabaseConnection, redis_client: redis::Client) -> Router {
+fn app(db: DatabaseConnection, redis_client: redis::Client, gcs_client: google_cloud_storage::client::Client) -> Router {
     let auth_routes = Router::new()
         .route("/register", post(api::auth::register))
         .route("/login", post(api::auth::login));
@@ -54,6 +58,7 @@ fn app(db: DatabaseConnection, redis_client: redis::Client) -> Router {
         .route("/pets", post(api::pet::create_pet))
         .route("/pets/:id", get(api::pet::get_pet).patch(api::pet::update_pet).delete(api::pet::delete_pet))
         .route("/pets/:id/upload_video", post(api::daily_digest::upload_video))
+        .route("/internal/generate_daily_digest", post(api::daily_digest::generate_daily_digest))
         .route_layer(axum::middleware::from_fn(api::middleware::auth_middleware));
 
     Router::new()
@@ -62,5 +67,6 @@ fn app(db: DatabaseConnection, redis_client: redis::Client) -> Router {
         .merge(protected_routes)
         .layer(Extension(db))
         .layer(Extension(redis_client))
+        .layer(Extension(gcs_client))
         .layer(tower_cookies::CookieManagerLayer::new())
 }

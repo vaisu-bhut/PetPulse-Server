@@ -34,6 +34,10 @@ futures = "0.3"
 argon2 = "0.5"
 axum-extra = { version = "0.9", features = ["cookie"] }
 tower-cookies = "0.10"
+
 sea-orm-migration = "1.0"
 redis = { version = "0.27", features = ["tokio-comp"] }
-
+google-cloud-storage = "0.13"
+google-cloud-auth = "0.13"
+mime = "0.3"
+mime_guess = "2.0"

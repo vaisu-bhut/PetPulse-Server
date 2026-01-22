@@ -2,25 +2,27 @@ use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, QueryFilte
 use redis::AsyncCommands;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use crate::entities::{pet_video, daily_digest, PetVideo, DailyDigest}; // Check exports
+use crate::entities::{pet_video, PetVideo};
 use crate::gemini::GeminiClient;
 use chrono::Utc;
 use uuid::Uuid;
 use serde_json::Value;
+use google_cloud_storage::client::Client as GcsClient;
+use google_cloud_storage::http::objects::download::Range;
+use google_cloud_storage::http::objects::get::GetObjectRequest;
+use tokio::io::AsyncWriteExt;
 
-pub async fn start_workers(redis_client: redis::Client, db: DatabaseConnection, concurrency: usize) {
+pub async fn start_workers(redis_client: redis::Client, db: DatabaseConnection, concurrency: usize, gcs_client: GcsClient) {
     let db = Arc::new(db);
     let redis_client = Arc::new(redis_client);
+    let gcs_client = Arc::new(gcs_client);
     // Shared Gemini Client
     let gemini_client = Arc::new(GeminiClient::new());
 
-    // We can just spawn 'concurrency' number of long-running loops.
-    // Or a single loop that spawns tasks up to permit.
-    // Given the requirement "max 3 concurrent LLM calls", 3 separate consumers is easiest.
-    
     for i in 0..concurrency {
         let db = db.clone();
         let redis_client = redis_client.clone();
+        let gcs_client = gcs_client.clone();
         let gemini = gemini_client.clone();
         
         tokio::spawn(async move {
@@ -36,8 +38,6 @@ pub async fn start_workers(redis_client: redis::Client, db: DatabaseConnection, 
                    }
                 };
                 
-                // BLPOP - Block indefinitely (or 0 timeout)
-                // BLPOP returns (key, value)
                 let result: redis::RedisResult<(String, String)> = conn.blpop("video_queue", 0.0).await;
                 
                 match result {
@@ -59,7 +59,7 @@ pub async fn start_workers(redis_client: redis::Client, db: DatabaseConnection, 
                             }
                         };
                         
-                        process_video(video_id, &db, &gemini, &mut conn).await;
+                        process_video(video_id, &db, &gemini, &mut conn, &gcs_client).await;
                     },
                     Err(e) => {
                         tracing::error!("Worker {}: Redis error: {}", i, e);
@@ -75,7 +75,8 @@ async fn process_video(
     video_id: Uuid, 
     db: &DatabaseConnection, 
     gemini: &GeminiClient,
-    redis_conn: &mut redis::aio::MultiplexedConnection
+    redis_conn: &mut redis::aio::MultiplexedConnection,
+    gcs_client: &GcsClient
 ) {
     // 1. Fetch Video Entity
     let video_opt = PetVideo::find_by_id(video_id).one(db).await.unwrap_or(None);
@@ -94,56 +95,65 @@ async fn process_video(
          return; 
     }
 
-    // 3. Analyze
-    match gemini.analyze_video(&video.file_path).await {
+    // 3. Download from GCS
+    let gcs_path = video.file_path.clone();
+    let temp_file_path = format!("/tmp/{}", video_id);
+    
+    // Parse bucket and object
+    // Expecting: gs://bucket/object/path
+    let parts: Vec<&str> = gcs_path.trim_start_matches("gs://").splitn(2, '/').collect();
+    if parts.len() != 2 {
+         tracing::error!("Invalid GCS URI: {}", gcs_path);
+         // Fail
+         let mut active: pet_video::ActiveModel = video.clone().into();
+         active.status = Set("FAILED".to_string());
+         let _ = active.update(db).await;
+         return;
+    }
+    let bucket = parts[0];
+    let object = parts[1];
+
+    let data = match gcs_client.download_object(
+        &GetObjectRequest {
+            bucket: bucket.to_string(),
+            object: object.to_string(),
+            ..Default::default()
+        },
+        &Range::default(),
+    ).await {
+        Ok(d) => d,
+        Err(e) => {
+             tracing::error!("Failed to download from GCS: {}", e);
+             // Fail or Retry logic?
+             // Let's retry if transient, fail for now to keep simple.
+             return;
+        }
+    };
+
+    if let Err(e) = tokio::fs::write(&temp_file_path, data).await {
+         tracing::error!("Failed to write temp file: {}", e);
+         return;
+    }
+
+    // 4. Analyze
+    match gemini.analyze_video(&temp_file_path).await {
         Ok(analysis_result) => {
             tracing::info!("Analysis successful for {}", video_id);
-            // Update Status COMPLETED
+            // Update Status PROCESSED (User changed requirement from COMPLETED)
             let mut active: pet_video::ActiveModel = video.clone().into();
-            active.status = Set("COMPLETED".to_string());
+            active.status = Set("PROCESSED".to_string());
             active.analysis_result = Set(Some(analysis_result.clone()));
             let _ = active.update(db).await;
-
-            // Aggregation (Simple: just append or upsert DailyDigest)
-            // Validating existence of daily digest for this pet and date.
-            let today = Utc::now().date_naive(); // Or use video creation date? Let's use today.
             
-            let digest_opt = DailyDigest::find()
-                .filter(daily_digest::Column::PetId.eq(video.pet_id))
-                .filter(daily_digest::Column::Date.eq(today))
-                .one(db)
-                .await
-                .unwrap_or(None);
-
-            let analysis_text = analysis_result["candidates"][0]["content"]["parts"][0]["text"]
-                .as_str()
-                .unwrap_or("No analysis text found")
-                .to_string();
-
-            if let Some(digest) = digest_opt {
-                // Update
-                let new_summary = format!("{}\n\nNew Video Analysis:\n{}", digest.summary, analysis_text);
-                let mut active_digest: daily_digest::ActiveModel = digest.into();
-                active_digest.summary = Set(new_summary);
-                let _ = active_digest.update(db).await;
-            } else {
-                // Create
-                let new_summary = format!("Daily Digest for {}\n\nVideo Analysis:\n{}", today, analysis_text);
-                let active_digest = daily_digest::ActiveModel {
-                    id: Set(Uuid::new_v4()),
-                    pet_id: Set(video.pet_id),
-                    date: Set(today),
-                    summary: Set(new_summary),
-                    created_at: Set(Utc::now().into()),
-                    updated_at: Set(Utc::now().into()),
-                    ..Default::default()
-                };
-                let _ = active_digest.insert(db).await;
-            }
-
+            // Cleanup
+            let _ = tokio::fs::remove_file(&temp_file_path).await;
         },
         Err(e) => {
             tracing::error!("Analysis failed for {}: {}", video_id, e);
+            
+            // Cleanup
+            let _ = tokio::fs::remove_file(&temp_file_path).await;
+
             if retry_count < 2 {
                 // Retry
                 let mut active: pet_video::ActiveModel = video.clone().into();
@@ -151,8 +161,6 @@ async fn process_video(
                 active.status = Set("Retrying".to_string());
                 let _ = active.update(db).await;
                 
-                // Push back to Redis (Tail, or Head if we want immediate retry? User said FIFO so likely Tail)
-                // But typically retries can go back to queue.
                 let payload = serde_json::json!({ "video_id": video_id }).to_string();
                 let _ : () = redis_conn.rpush("video_queue", payload).await.unwrap_or(());
             } else {

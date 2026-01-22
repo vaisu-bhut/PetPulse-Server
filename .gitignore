@@ -19,5 +19,12 @@ target/
 # Environment variables
 .env
 
+# Google Cloud Service Account
+*.json
+
+# Test video
+*.mp4
+*.txt
+
 # Assets
 assets/

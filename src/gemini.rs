@@ -109,7 +109,15 @@ impl GeminiClient {
             self.model, self.api_key
         );
 
-        let prompt = "Analyze this video of a pet. precise behavior analysis, activity level, and mood. Return a JSON structure with keys: 'summary', 'activities' (list), 'mood', 'highlight'.";
+        let prompt = "Analyze this video of a pet. precise behavior analysis, activity level, and mood. Return a JSON object (without markdown code blocks) with the following structure: \n\
+        { \n\
+            'summary': 'brief summary string', \n\
+            'activities': ['activity1', 'activity2'], \n\
+            'mood': 'mood string', \n\
+            'is_unusual': boolean, \n\
+            'unusual_details': 'details if is_unusual is true, else null' \n\
+        } \n\
+        Identify if there is any unusual or concerning behavior (e.g., limping, aggression, extreme lethargy) and set 'is_unusual' to true.";
 
         let body = json!({
             "contents": [{
