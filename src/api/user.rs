@@ -1,11 +1,11 @@
+use crate::entities::user;
 use axum::{
     extract::{Extension, Json},
-    response::{IntoResponse, Response},
     http::StatusCode,
+    response::{IntoResponse, Response},
 };
-use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, IntoActiveModel};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, Set};
 use serde_json::json;
-use crate::entities::user;
 
 #[derive(serde::Deserialize)]
 pub struct UpdateUserRequest {
@@ -18,9 +18,21 @@ pub async fn get_user(
     Extension(user_id): Extension<i32>,
 ) -> Response {
     match user::Entity::find_by_id(user_id).one(&db).await {
-        Ok(Some(u)) => (StatusCode::OK, Json(json!({"id": u.id, "email": u.email, "name": u.name, "created_at": u.created_at}))).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(Some(u)) => (
+            StatusCode::OK,
+            Json(json!({"id": u.id, "email": u.email, "name": u.name, "created_at": u.created_at})),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -31,18 +43,42 @@ pub async fn update_user(
 ) -> Response {
     let user = match user::Entity::find_by_id(user_id).one(&db).await {
         Ok(Some(u)) => u,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "User not found"})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        }
     };
 
     let mut active_user = user.into_active_model();
-    if let Some(name) = payload.name { active_user.name = Set(name); }
-    if let Some(email) = payload.email { active_user.email = Set(email); }
+    if let Some(name) = payload.name {
+        active_user.name = Set(name);
+    }
+    if let Some(email) = payload.email {
+        active_user.email = Set(email);
+    }
     active_user.updated_at = Set(chrono::Utc::now().naive_utc());
 
     match active_user.update(&db).await {
-        Ok(u) => (StatusCode::OK, Json(json!({"id": u.id, "email": u.email, "name": u.name}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(u) => (
+            StatusCode::OK,
+            Json(json!({"id": u.id, "email": u.email, "name": u.name})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -51,8 +87,16 @@ pub async fn delete_user(
     Extension(user_id): Extension<i32>,
 ) -> Response {
     match user::Entity::delete_by_id(user_id).exec(&db).await {
-        Ok(res) if res.rows_affected == 0 => (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"}))).into_response(),
+        Ok(res) if res.rows_affected == 0 => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "User not found"})),
+        )
+            .into_response(),
         Ok(_) => (StatusCode::OK, Json(json!({"message": "User deleted"}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }

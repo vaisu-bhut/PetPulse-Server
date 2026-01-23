@@ -13,7 +13,7 @@ pub struct Model {
     pub retry_count: i32,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
-    
+
     // New Fields
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub activities: Option<serde_json::Value>,

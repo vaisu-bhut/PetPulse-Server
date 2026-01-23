@@ -11,12 +11,7 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Clip::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Clip::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
+                    .col(ColumnDef::new(Clip::Id).uuid().not_null().primary_key())
                     .col(ColumnDef::new(Clip::VideoId).uuid().not_null())
                     .col(ColumnDef::new(Clip::StartTime).string().not_null())
                     .col(ColumnDef::new(Clip::EndTime).string().not_null())

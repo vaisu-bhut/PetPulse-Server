@@ -6,7 +6,7 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-         // Drop 'clips' if it exists
+        // Drop 'clips' if it exists
         manager
             .drop_table(Table::drop().table(Clip::Table).if_exists().to_owned())
             .await?;
@@ -30,7 +30,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(PetVideo::Table)
-                    .add_column(ColumnDef::new(PetVideo::AnalysisResult).json_binary().null())
+                    .add_column(
+                        ColumnDef::new(PetVideo::AnalysisResult)
+                            .json_binary()
+                            .null(),
+                    )
                     .drop_column(PetVideo::Activities)
                     .drop_column(PetVideo::Mood)
                     .drop_column(PetVideo::Description)
