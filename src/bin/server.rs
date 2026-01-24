@@ -5,19 +5,16 @@ use axum::{
 use petpulse_server::{api, migrator};
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 
 #[tokio::main]
 async fn main() {
     // Load .env if present (dotenvy)
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    petpulse_server::telemetry::init_telemetry("petpulse-server");
+
+    let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
 
     // Database Connection
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -44,7 +41,7 @@ async fn main() {
         .expect("Failed to run migrations");
 
     // Use app logic directly here
-    let app = app(db, redis_client, gcs_client);
+    let app = app(db, redis_client, gcs_client, prometheus_layer, metric_handle);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("listening on {}", addr);
@@ -60,6 +57,8 @@ fn app(
     db: DatabaseConnection,
     redis_client: redis::Client,
     gcs_client: google_cloud_storage::client::Client,
+    prometheus_layer: axum_prometheus::PrometheusMetricLayer<'static>,
+    metric_handle: metrics_exporter_prometheus::PrometheusHandle,
 ) -> Router {
     let auth_routes = Router::new()
         .route("/register", post(api::auth::register))
@@ -97,4 +96,6 @@ fn app(
         .layer(Extension(redis_client))
         .layer(Extension(gcs_client))
         .layer(tower_cookies::CookieManagerLayer::new())
+        .layer(prometheus_layer)
+        .route("/metrics", get(|| async move { metric_handle.render() }))
 }

@@ -32,11 +32,14 @@ services:
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
       GEMINI_MODEL: "gemini-3-pro-preview"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      RUST_LOG_FORMAT: json
     volumes:
       - ./clestiq-petpulse-6b40f17a955d.json:/app/credentials.json
     depends_on:
       - db
       - redis
+      - tempo
     develop:
       watch:
         - action: rebuild
@@ -56,16 +59,68 @@ services:
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
       GEMINI_MODEL: "gemini-3-pro-preview"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      RUST_LOG_FORMAT: json
     volumes:
       - ./clestiq-petpulse-6b40f17a955d.json:/app/credentials.json
     depends_on:
       - db
       - redis
+      - tempo
     develop:
       watch:
         - action: rebuild
           path: ./src
           target: /app/worker
+
+  # Observability
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: petpulse_loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    container_name: petpulse_promtail
+    volumes:
+      - ./observability/promtail.yaml:/etc/promtail/config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yaml
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: petpulse_tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200" # Tempo HTTP
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: petpulse_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: petpulse_grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
 
 volumes:
   postgres_data:

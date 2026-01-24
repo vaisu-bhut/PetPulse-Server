@@ -1,18 +1,25 @@
 use petpulse_server::worker;
 use sea_orm::Database;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
     // Load .env if present (dotenvy)
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    petpulse_server::telemetry::init_telemetry("petpulse-worker");
+
+    let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
+    
+    // Spawn metrics server
+    tokio::spawn(async move {
+        let app = axum::Router::new()
+            .route("/metrics", axum::routing::get(|| async move { metric_handle.render() }))
+            .layer(prometheus_layer);
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 9091));
+        tracing::info!("Metrics server listening on {}", addr);
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
+    });
 
     // Database Connection
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
