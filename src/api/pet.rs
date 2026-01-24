@@ -1,11 +1,11 @@
-use axum::{
-    extract::{Extension, Path, Json},
-    response::{IntoResponse, Response},
-    http::StatusCode,
-};
-use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, IntoActiveModel};
-use serde_json::json;
 use crate::entities::pet;
+use axum::{
+    extract::{Extension, Json, Path},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, Set};
+use serde_json::json;
 
 #[derive(serde::Deserialize)]
 pub struct CreatePetRequest {
@@ -36,7 +36,11 @@ pub async fn create_pet(
 
     match new_pet.insert(&db).await {
         Ok(pet) => (StatusCode::CREATED, Json(pet)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -46,8 +50,16 @@ pub async fn get_pet(
 ) -> Response {
     match pet::Entity::find_by_id(pet_id).one(&db).await {
         Ok(Some(p)) => (StatusCode::OK, Json(p)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"error": "Pet not found"}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Pet not found"})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -67,21 +79,47 @@ pub async fn update_pet(
 ) -> Response {
     let pet = match pet::Entity::find_by_id(pet_id).one(&db).await {
         Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(json!({"error": "Pet not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Pet not found"})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        }
     };
 
     let mut active_pet = pet.into_active_model();
-    if let Some(name) = payload.name { active_pet.name = Set(name); }
-    if let Some(age) = payload.age { active_pet.age = Set(age); }
-    if let Some(species) = payload.species { active_pet.species = Set(species); }
-    if let Some(breed) = payload.breed { active_pet.breed = Set(breed); }
-    if let Some(bio) = payload.bio { active_pet.bio = Set(bio); }
+    if let Some(name) = payload.name {
+        active_pet.name = Set(name);
+    }
+    if let Some(age) = payload.age {
+        active_pet.age = Set(age);
+    }
+    if let Some(species) = payload.species {
+        active_pet.species = Set(species);
+    }
+    if let Some(breed) = payload.breed {
+        active_pet.breed = Set(breed);
+    }
+    if let Some(bio) = payload.bio {
+        active_pet.bio = Set(bio);
+    }
     active_pet.updated_at = Set(chrono::Utc::now().naive_utc());
 
     match active_pet.update(&db).await {
         Ok(p) => (StatusCode::OK, Json(p)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -90,8 +128,16 @@ pub async fn delete_pet(
     Path(pet_id): Path<i32>,
 ) -> Response {
     match pet::Entity::delete_by_id(pet_id).exec(&db).await {
-        Ok(res) if res.rows_affected == 0 => (StatusCode::NOT_FOUND, Json(json!({"error": "Pet not found"}))).into_response(),
+        Ok(res) if res.rows_affected == 0 => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Pet not found"})),
+        )
+            .into_response(),
         Ok(_) => (StatusCode::OK, Json(json!({"message": "Pet deleted"}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }

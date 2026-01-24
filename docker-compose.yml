@@ -29,6 +29,11 @@ services:
       REDIS_URL: redis://redis:6379
       RUST_LOG: debug
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
+      GEMINI_MODEL: "gemini-3-pro-preview"
+    volumes:
+      - ./clestiq-petpulse-6b40f17a955d.json:/app/credentials.json
     depends_on:
       - db
       - redis
@@ -48,6 +53,11 @@ services:
       REDIS_URL: redis://redis:6379
       RUST_LOG: debug
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
+      GEMINI_MODEL: "gemini-3-pro-preview"
+    volumes:
+      - ./clestiq-petpulse-6b40f17a955d.json:/app/credentials.json
     depends_on:
       - db
       - redis

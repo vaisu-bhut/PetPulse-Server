@@ -50,12 +50,7 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(PetVideo::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(PetVideo::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
+                    .col(ColumnDef::new(PetVideo::Id).uuid().not_null().primary_key())
                     .col(ColumnDef::new(PetVideo::PetId).integer().not_null())
                     .col(ColumnDef::new(PetVideo::FilePath).string().not_null())
                     .col(
@@ -64,7 +59,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("PENDING"),
                     )
-                    .col(ColumnDef::new(PetVideo::AnalysisResult).json_binary().null())
+                    .col(
+                        ColumnDef::new(PetVideo::AnalysisResult)
+                            .json_binary()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(PetVideo::RetryCount)
                             .integer()

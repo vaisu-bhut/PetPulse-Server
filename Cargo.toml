@@ -20,9 +20,9 @@ axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sea-orm = { version = "1.0", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
+sea-orm = { version = "1.0", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros", "with-json" ] }
 dotenvy = "0.15"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json", "multipart", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart", "stream"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -34,6 +34,10 @@ futures = "0.3"
 argon2 = "0.5"
 axum-extra = { version = "0.9", features = ["cookie"] }
 tower-cookies = "0.10"
-sea-orm-migration = "1.0"
-redis = { version = "0.27", features = ["tokio-comp"] }
 
+sea-orm-migration = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls"], default-features = false }
+redis = { version = "0.27", features = ["tokio-comp"] }
+google-cloud-storage = "0.23"
+google-cloud-auth = "0.23"
+mime = "0.3"
+mime_guess = "2.0"

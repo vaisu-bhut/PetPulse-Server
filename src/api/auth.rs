@@ -1,19 +1,16 @@
+use crate::entities::user;
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use axum::{
     extract::{Extension, Json},
-    response::{IntoResponse, Response},
     http::StatusCode,
+    response::{IntoResponse, Response},
 };
-use sea_orm::{DatabaseConnection, EntityTrait, ActiveModelTrait, Set, QueryFilter, ColumnTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::json;
-use argon2::{
-    password_hash::{
-        rand_core::OsRng,
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
-    },
-    Argon2
-};
-use tower_cookies::{Cookies, Cookie};
-use crate::entities::user;
+use tower_cookies::{Cookie, Cookies};
 
 #[derive(serde::Deserialize)]
 pub struct RegisterRequest {
@@ -31,7 +28,13 @@ pub async fn register(
     let argon2 = Argon2::default();
     let password_hash = match argon2.hash_password(payload.password.as_bytes(), &salt) {
         Ok(hash) => hash.to_string(),
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to hash password"}))).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to hash password"})),
+            )
+                .into_response()
+        }
     };
 
     let now = chrono::Utc::now().naive_utc();
@@ -45,8 +48,16 @@ pub async fn register(
     };
 
     match new_user.insert(&db).await {
-        Ok(user) => (StatusCode::CREATED, Json(json!({"id": user.id, "email": user.email, "name": user.name}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(user) => (
+            StatusCode::CREATED,
+            Json(json!({"id": user.id, "email": user.email, "name": user.name})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
     }
 }
 
@@ -64,19 +75,40 @@ pub async fn login(
     let user = match user::Entity::find()
         .filter(user::Column::Email.eq(payload.email))
         .one(&db)
-        .await 
+        .await
     {
         Ok(Some(u)) => u,
-        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Invalid email or password"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid email or password"})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        }
     };
 
     let parsed_hash = match PasswordHash::new(&user.password_hash) {
         Ok(h) => h,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Invalid password hash in DB"}))).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Invalid password hash in DB"})),
+            )
+                .into_response()
+        }
     };
 
-    if Argon2::default().verify_password(payload.password.as_bytes(), &parsed_hash).is_ok() {
+    if Argon2::default()
+        .verify_password(payload.password.as_bytes(), &parsed_hash)
+        .is_ok()
+    {
         // Set Cookie
         let mut cookie = Cookie::new("petpulse_user", user.id.to_string());
         cookie.set_path("/");
@@ -85,6 +117,10 @@ pub async fn login(
 
         (StatusCode::OK, Json(json!({"message": "Login successful"}))).into_response()
     } else {
-        (StatusCode::UNAUTHORIZED, Json(json!({"error": "Invalid email or password"}))).into_response()
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Invalid email or password"})),
+        )
+            .into_response()
     }
 }

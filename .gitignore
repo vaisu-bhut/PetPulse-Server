@@ -2,6 +2,7 @@
 # will have compiled files and executables
 debug/
 target/
+*.lock
 
 # Remove Cargo.lock from gitignore if creating an executable, leave it for libraries
 # More information here https://doc.rust-lang.org/cargo/guide/cargo.toml-vs-cargo.lock.html
@@ -18,6 +19,13 @@ target/
 
 # Environment variables
 .env
+
+# Google Cloud Service Account
+*.json
+
+# Test video
+*.mp4
+*.txt
 
 # Assets
 assets/

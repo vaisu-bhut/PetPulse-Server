@@ -1,6 +1,6 @@
+use petpulse_server::worker;
 use sea_orm::Database;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use petpulse_server::worker;
 
 #[tokio::main]
 async fn main() {
@@ -16,16 +16,29 @@ async fn main() {
 
     // Database Connection
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let db = Database::connect(&database_url).await.expect("Failed to connect to database");
+    let db = Database::connect(&database_url)
+        .await
+        .expect("Failed to connect to database");
 
     // Redis Connection
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
     let redis_client = redis::Client::open(redis_url).expect("Invalid Redis URL");
 
+    // GCS Client
+    let gcs_config = google_cloud_storage::client::ClientConfig::default()
+        .with_auth()
+        .await
+        .unwrap();
+    let gcs_client = google_cloud_storage::client::Client::new(gcs_config);
+
     tracing::info!("Starting background worker...");
-    
-    // Start Workers
-    worker::start_workers(redis_client, db, 3).await;
+
+    // Start Video Workers (3 concurrent)
+    worker::start_workers(redis_client.clone(), db.clone(), 3, gcs_client).await;
+
+    // Start Digest Workers (3 concurrent, stateless)
+    worker::start_digest_workers(redis_client.clone(), db.clone(), 3).await;
 
     // Keep the main process alive
     match tokio::signal::ctrl_c().await {
