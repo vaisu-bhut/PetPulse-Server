@@ -196,7 +196,7 @@ pub async fn generate_daily_digest(
         let mut unusual_events = Vec::new();
         let mut mood_counts = std::collections::HashMap::new();
 
-        for clip in clips {
+        for clip in &clips {
             // Description as Summary
             if let Some(s) = &clip.description {
                 summaries.push_str(&format!("- {}\n", s));
@@ -243,9 +243,9 @@ pub async fn generate_daily_digest(
 
         // Create Final Digest Text
         let dominant_mood = mood_counts
-            .into_iter()
+            .iter()
             .max_by_key(|a| a.1)
-            .map(|(k, _)| k)
+            .map(|(k, _)| k.clone())
             .unwrap_or("Unknown".to_string());
 
         let final_summary = format!(
@@ -266,9 +266,35 @@ pub async fn generate_daily_digest(
             .await
             .unwrap_or(None);
 
+        // Create JSON payloads
+        let moods: Vec<String> = mood_counts.keys().cloned().collect();
+        let moods_json = serde_json::to_value(moods).unwrap_or(serde_json::json!([]));
+        let activities_json =
+            serde_json::to_value(activities_list.clone()).unwrap_or(serde_json::json!([]));
+
+        // Convert unusual_events strings back to detailed objects if possible, or just list
+        // Since we only collected strings in previous loop, let's fix the loop to collect objects
+        // We will do it properly by maintaining 'unusual_events_list'
+        let mut unusual_events_objects = Vec::new();
+        for clip in &clips {
+            if clip.is_unusual {
+                unusual_events_objects.push(serde_json::json!({
+                    "video_id": clip.id,
+                    "description": clip.description.clone().unwrap_or("Unusual activity".to_string()),
+                    "timestamp": clip.created_at.to_rfc3339()
+                }));
+            }
+        }
+        let unusual_events_json =
+            serde_json::to_value(unusual_events_objects).unwrap_or(serde_json::json!([]));
+
         if let Some(digest) = existing {
             let mut active: daily_digest::ActiveModel = digest.into();
             active.summary = Set(final_summary);
+            active.moods = Set(Some(moods_json));
+            active.activities = Set(Some(activities_json));
+            active.unusual_events = Set(Some(unusual_events_json));
+            active.total_videos = Set(clips.len() as i32);
             active.updated_at =
                 Set(Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
             let _ = active.update(&db).await;
@@ -278,6 +304,10 @@ pub async fn generate_daily_digest(
                 pet_id: Set(pet_id),
                 date: Set(date),
                 summary: Set(final_summary),
+                moods: Set(Some(moods_json)),
+                activities: Set(Some(activities_json)),
+                unusual_events: Set(Some(unusual_events_json)),
+                total_videos: Set(clips.len() as i32),
                 created_at: Set(
                     Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap())
                 ),

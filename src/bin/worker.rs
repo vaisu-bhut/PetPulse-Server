@@ -34,8 +34,11 @@ async fn main() {
 
     tracing::info!("Starting background worker...");
 
-    // Start Workers
-    worker::start_workers(redis_client, db, 3, gcs_client).await;
+    // Start Video Workers (3 concurrent)
+    worker::start_workers(redis_client.clone(), db.clone(), 3, gcs_client).await;
+
+    // Start Digest Workers (3 concurrent, stateless)
+    worker::start_digest_workers(redis_client.clone(), db.clone(), 3).await;
 
     // Keep the main process alive
     match tokio::signal::ctrl_c().await {

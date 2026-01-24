@@ -42,10 +42,14 @@ echo "5. Waiting for Worker to Process (60s)..."
 for i in {1..60}; do echo -n "."; sleep 1; done
 echo -e "\n"
 
-echo "6. Triggering Daily Digest..."
-curl -c $COOKIE_FILE -b $COOKIE_FILE -X POST "$BASE_URL/internal/generate_daily_digest" \
-  -H "Content-Type: application/json" \
-  -d "{}"
-echo -e "\n"
 
-echo "Done! Check server logs for details."
+
+echo "7. Verifying Database Content..."
+echo "--- Pet Video Table ---"
+docker exec petpulse_db psql -U user -d petpulse -c "SELECT id, status, mood, is_unusual, activities FROM pet_video;"
+
+echo -e "\n--- Daily Digest Table ---"
+docker exec petpulse_db psql -U user -d petpulse -c "SELECT pet_id, date, moods, activities, unusual_events, total_videos FROM daily_digest;"
+
+echo -e "\n"
+echo "Done! Check the output above to verify table values."
