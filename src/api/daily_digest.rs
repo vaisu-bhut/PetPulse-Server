@@ -117,6 +117,13 @@ pub async fn upload_video(
                 .record("business_event", "Video uploaded to GCS and recorded in DB");
 
             metrics::counter!("petpulse_videos_uploaded_total", "pet_id" => pet_id.to_string()).increment(1);
+            metrics::gauge!("petpulse_videos_total").increment(1.0);
+            
+            // Increment per-pet count
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                crate::metrics::increment_pet_videos(&db_clone, pet_id).await;
+            });
 
             // 3. Push to Redis
             let mut conn = redis_client

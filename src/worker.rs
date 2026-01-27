@@ -11,12 +11,49 @@ use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
 
+// Queue Monitoring
+pub async fn start_queue_monitor(redis_client: redis::Client) {
+    let redis_client = Arc::new(redis_client);
+    
+    // Spawn a background task
+    tokio::spawn(async move {
+        tracing::info!("Queue Monitor started");
+        loop {
+             let mut conn = match redis_client.get_multiplexed_async_connection().await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("Queue Monitor: Failed to get redis conn: {}", e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+                    continue;
+                }
+            };
+
+            let video_queue_len: redis::RedisResult<u64> = conn.llen("video_queue").await;
+            match video_queue_len {
+                Ok(len) => metrics::gauge!("petpulse_queue_depth", "queue" => "video_queue").set(len as f64),
+                Err(e) => tracing::error!("Failed to get video_queue len: {}", e),
+            }
+
+            let digest_queue_len: redis::RedisResult<u64> = conn.llen("digest_queue").await;
+            match digest_queue_len {
+                Ok(len) => metrics::gauge!("petpulse_queue_depth", "queue" => "digest_queue").set(len as f64),
+                Err(e) => tracing::error!("Failed to get digest_queue len: {}", e),
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+        }
+    });
+}
+
 pub async fn start_workers(
     redis_client: redis::Client,
     db: DatabaseConnection,
     concurrency: usize,
     gcs_client: GcsClient,
 ) {
+    // Start Queue Monitor
+    start_queue_monitor(redis_client.clone()).await;
+
     let db = Arc::new(db);
     let redis_client = Arc::new(redis_client);
     let gcs_client = Arc::new(gcs_client);
@@ -179,12 +216,24 @@ async fn process_video(
             }
         }.instrument(tracing::info_span!("download_video_gcs")).await;
 
+
         // 4. Analyze
         async {
-            match gemini.analyze_video(&temp_file_path).await {
-                Ok(analysis_result) => {
+            match gemini.analyze_video_with_usage(&temp_file_path).await {
+                Ok((analysis_result, usage_metadata)) => {
                     tracing::info!("Analysis successful for {}", video_id);
                     tracing::info!("Raw Analysis Result: {:?}", analysis_result);
+                    tracing::info!("Usage Metadata: {:?}", usage_metadata);
+
+                    // Record Token Usage
+                    if let Some(usage) = usage_metadata {
+                        if let Some(input_tokens) = usage["promptTokenCount"].as_i64() {
+                             metrics::counter!("petpulse_gemini_tokens_total", "type" => "input").increment(input_tokens as u64);
+                        }
+                        if let Some(output_tokens) = usage["candidatesTokenCount"].as_i64() {
+                             metrics::counter!("petpulse_gemini_tokens_total", "type" => "output").increment(output_tokens as u64);
+                        }
+                    }
 
                     // Update Status PROCESSED
                     let mut active: pet_video::ActiveModel = video.clone().into();

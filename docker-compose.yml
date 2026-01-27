@@ -31,7 +31,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
-      GEMINI_MODEL: "gemini-3-pro-preview"
+      GEMINI_MODEL: "gemini-2.5-flash"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
       RUST_LOG_FORMAT: json
     volumes:
@@ -58,7 +58,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
-      GEMINI_MODEL: "gemini-3-pro-preview"
+      GEMINI_MODEL: "gemini-2.5-flash"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
       RUST_LOG_FORMAT: json
     volumes:

@@ -28,3 +28,15 @@ datasources:
       triggers:
         lokiSearch:
           datasourceUid: loki
+
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres
+    url: db:5432
+    database: petpulse
+    user: user
+    secureJsonData:
+      password: password
+    jsonData:
+      sslmode: "disable"
+      postgresVersion: 1600

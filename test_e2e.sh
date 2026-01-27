@@ -7,13 +7,13 @@ COOKIE_FILE="cookies.txt"
 echo "1. Registering User..."
 curl -c $COOKIE_FILE -b $COOKIE_FILE -X POST "$BASE_URL/register" \
   -H "Content-Type: application/json" \
-  -d '{"name": "testuser", "password": "password123", "email": "test_traffic_1769398486@example.com"}'
+  -d '{"name": "testuser", "password": "password123", "email": "test_traffic_1769473874@example.com"}'
 echo -e "\n"
 
 echo "2. Logging In..."
 curl -c $COOKIE_FILE -b $COOKIE_FILE -X POST "$BASE_URL/login" \
   -H "Content-Type: application/json" \
-  -d '{"email": "test_traffic_1769398486@example.com", "password": "password123"}'
+  -d '{"email": "test_traffic_1769473874@example.com", "password": "password123"}'
 echo -e "\n"
 
 echo "3. Creating Pet..."

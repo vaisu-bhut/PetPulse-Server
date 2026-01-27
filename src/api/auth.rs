@@ -59,6 +59,7 @@ pub async fn register(
                 .record("error", tracing::field::Empty);
             
             metrics::counter!("petpulse_users_registered_total").increment(1);
+            metrics::gauge!("petpulse_users_total").increment(1.0);
 
             (
                 StatusCode::CREATED,

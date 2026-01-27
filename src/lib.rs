@@ -7,3 +7,4 @@ pub mod telemetry;
 
 pub use redis;
 pub use sea_orm;
+pub mod metrics;

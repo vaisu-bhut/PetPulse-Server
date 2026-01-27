@@ -42,6 +42,13 @@ pub async fn create_pet(
                 "New pet created"
             );
             metrics::counter!("petpulse_pets_created_total").increment(1);
+            metrics::gauge!("petpulse_pets_total").increment(1.0);
+            
+            // Increment per-user count
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                crate::metrics::increment_user_pets(&db_clone, pet.user_id).await;
+            });
             (StatusCode::CREATED, Json(pet)).into_response()
         },
         Err(e) => (

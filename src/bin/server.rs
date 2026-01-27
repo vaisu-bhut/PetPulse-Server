@@ -40,6 +40,9 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
+    // Initialize Metrics
+    petpulse_server::metrics::init_metrics(&db).await;
+
     // Use app logic directly here
     let app = app(db, redis_client, gcs_client, prometheus_layer, metric_handle);
 
