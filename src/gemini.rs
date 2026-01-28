@@ -34,6 +34,22 @@ impl GeminiClient {
         self.generate_content(&file_uri).await
     }
 
+    pub async fn analyze_video_with_usage(&self, file_path: &str) -> Result<(Value, Option<Value>), String> {
+        // 1. Upload File
+        let file_uri = self.upload_file(file_path).await?;
+
+        // 2. Wait for processing (Video processing takes time)
+        // Gemini File API requires waiting for state=ACTIVE
+        self.wait_for_file_active(&file_uri).await?;
+
+        // 3. Generate Content
+        self.generate_content_with_usage(&file_uri).await
+    }
+    async fn generate_content(&self, file_name: &str) -> Result<Value, String> {
+        let (val, _) = self.generate_content_with_usage(file_name).await?;
+        Ok(val)
+    }
+
     async fn upload_file(&self, file_path: &str) -> Result<String, String> {
         let path = Path::new(file_path);
         let file_name = path.file_name().unwrap().to_str().unwrap();
@@ -122,7 +138,9 @@ impl GeminiClient {
         Err("Timeout waiting for video processing".to_string())
     }
 
-    async fn generate_content(&self, file_name: &str) -> Result<Value, String> {
+
+
+    async fn generate_content_with_usage(&self, file_name: &str) -> Result<(Value, Option<Value>), String> {
         // Construct the model URL
         // User asked for "Gemini 3.0 Pro".
         // Note: As of now, only 1.5 is standard, but I'll plug in the env var `GEMINI_MODEL`.
@@ -132,23 +150,28 @@ impl GeminiClient {
         );
 
         let prompt = "Analyze this video of a pet. precise behavior analysis. \n\
-        Return a JSON object (without markdown code blocks) with the following structure: \n\
+        Return a valid JSON object (without markdown code blocks) with the following structure. USE DOUBLE QUOTES for keys and strings: \n\
         { \n\
-            'activities': [ \n\
+            \"activities\": [ \n\
                 { \n\
-                    'activity': 'string (Activity name e.g., Walking, Sleeping)', \n\
-                    'mood': 'string (Mood e.g., Energetic, Relaxed)', \n\
-                    'description': 'string (Detailed description of this specific segment)', \n\
-                    'starttime': 'string (HH:MM:SS)', \n\
-                    'endtime': 'string (HH:MM:SS)', \n\
-                    'duration': 'string (e.g. 5s)' \n\
+                    \"activity\": \"string (Activity name e.g., Walking, Sleeping)\", \n\
+                    \"mood\": \"string (Mood e.g., Energetic, Relaxed)\", \n\
+                    \"description\": \"string (Detailed description of this specific segment)\", \n\
+                    \"starttime\": \"string (HH:MM:SS)\", \n\
+                    \"endtime\": \"string (HH:MM:SS)\", \n\
+                    \"duration\": \"string (e.g. 5s)\" \n\
                 } \n\
             ], \n\
-            'is_unusual': boolean, \n\
-            'summary_mood': 'string (Overall mood)', \n\
-            'summary_description': 'string (Overall description)' \n\
+            \"is_unusual\": boolean, \n\
+            \"summary_mood\": \"string (Overall mood)\", \n\
+            \"summary_description\": \"string (Overall description)\" \n\
         } \n\
-        Identify if there is any unusual or concerning behavior (e.g., limping, aggression, extreme lethargy) and set 'is_unusual' to true.";
+        Identify if there is any unusual or concerning behavior and set \"is_unusual\" to true. \n\
+        You MUST classify the unusual activity as exactly one of these three categories if applicable: 'Pacing', 'Barking', or 'Whining'. \n\
+        - If the pet is walking in circles or back and forth repeatedly, label it 'Pacing'. \n\
+        - If the pet is making loud vocal sounds, label it 'Barking'. \n\
+        - If the pet is making high-pitched sad sounds, label it 'Whining'. \n\
+        - If the behavior is unusual but doesn't fit these, provide a descriptive activity name, but prioritize the standard categories.";
 
         let body = json!({
             "contents": [{
@@ -177,6 +200,9 @@ impl GeminiClient {
 
         let json: Value = res.json().await.map_err(|e| e.to_string())?;
 
+        // Extract usage metadata
+        let usage = json.get("usageMetadata").cloned();
+
         // Extract text from: candidates[0].content.parts[0].text
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
@@ -192,7 +218,7 @@ impl GeminiClient {
         let parsed: Value = serde_json::from_str(clean_text)
             .map_err(|e| format!("Failed to parse Gemini JSON: {} - Text: {}", e, clean_text))?;
 
-        Ok(parsed)
+        Ok((parsed, usage))
     }
 
     // Helper to get URI because upload returns it but I returned name for checking status.

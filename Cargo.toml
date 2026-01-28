@@ -15,6 +15,10 @@ path = "src/bin/server.rs"
 name = "worker"
 path = "src/bin/worker.rs"
 
+[[bin]]
+name = "agent"
+path = "src/bin/agent.rs"
+
 [dependencies]
 axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1.0", features = ["full"] }
@@ -25,7 +29,7 @@ dotenvy = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart", "stream"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -41,3 +45,13 @@ google-cloud-storage = "0.23"
 google-cloud-auth = "0.23"
 mime = "0.3"
 mime_guess = "2.0"
+
+# Observability
+opentelemetry = { version = "0.22", features = ["metrics", "trace"] }
+opentelemetry_sdk = { version = "0.22", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.15", features = ["grpc-tonic", "metrics", "trace"] }
+opentelemetry-semantic-conventions = "0.14"
+tracing-opentelemetry = "0.23"
+axum-prometheus = "0.6"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"

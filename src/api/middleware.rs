@@ -8,11 +8,28 @@ use axum::{
 use serde_json::json;
 use tower_cookies::Cookies;
 
-pub async fn auth_middleware(cookies: Cookies, mut request: Request, next: Next) -> Response {
+use crate::entities::user;
+use sea_orm::{DatabaseConnection, EntityTrait};
+use axum::extract::Extension;
+
+pub async fn auth_middleware(
+    Extension(db): Extension<DatabaseConnection>, 
+    cookies: Cookies, 
+    mut request: Request, 
+    next: Next
+) -> Response {
     if let Some(cookie) = cookies.get("petpulse_user") {
         if let Ok(user_id) = cookie.value().parse::<i32>() {
-            request.extensions_mut().insert(user_id);
-            return next.run(request).await;
+            // Check DB for email to log
+            if let Ok(Some(user)) = user::Entity::find_by_id(user_id).one(&db).await {
+                request.extensions_mut().insert(user_id);
+                // Record email and user_id to span
+                tracing::Span::current()
+                    .record("user_id", user_id)
+                    .record("user_email", &user.email);
+                
+                return next.run(request).await;
+            }
         }
     }
     (

@@ -94,7 +94,7 @@ pub async fn upload_video(
             let pet_video = pet_video::ActiveModel {
                 id: Set(file_uuid),
                 pet_id: Set(pet_id),
-                file_path: Set(gcs_path),
+                file_path: Set(gcs_path.clone()),
                 status: Set("PENDING".to_string()),
                 retry_count: Set(0),
                 created_at: Set(now),
@@ -109,6 +109,22 @@ pub async fn upload_video(
                 )
             })?;
 
+            tracing::Span::current()
+                .record("table", "pet_videos")
+                .record("action", "upload")
+                .record("video_id", file_uuid.to_string())
+                .record("pet_id", pet_id)
+                .record("business_event", "Video uploaded to GCS and recorded in DB");
+
+            metrics::counter!("petpulse_videos_uploaded_total", "pet_id" => pet_id.to_string()).increment(1);
+            metrics::gauge!("petpulse_videos_total").increment(1.0);
+            
+            // Increment per-pet count
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                crate::metrics::increment_pet_videos(&db_clone, pet_id).await;
+            });
+
             // 3. Push to Redis
             let mut conn = redis_client
                 .get_multiplexed_async_connection()
@@ -119,13 +135,30 @@ pub async fn upload_video(
                         format!("Redis Conn Error: {}", e),
                     )
                 })?;
-            let payload = serde_json::json!({ "video_id": file_uuid }).to_string();
+
+            // Propagate Trace Context
+            use opentelemetry::propagation::TextMapPropagator;
+            use opentelemetry_sdk::propagation::TraceContextPropagator;
+            use tracing_opentelemetry::OpenTelemetrySpanExt;
+            
+            let mut carrier = std::collections::HashMap::new();
+            let propagator = TraceContextPropagator::new();
+            let context = tracing::Span::current().context();
+            propagator.inject_context(&context, &mut carrier);
+
+            let payload = serde_json::json!({ 
+                "video_id": file_uuid,
+                "trace_context": carrier 
+            }).to_string();
+
             let _: () = conn.rpush("video_queue", payload).await.map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Redis Push Error: {}", e),
                 )
             })?;
+
+            tracing::info!("Enqueued video {} to video_queue", file_uuid);
 
             return Ok(Json(json!({
                 "status": "queued",

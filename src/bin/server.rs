@@ -5,19 +5,16 @@ use axum::{
 use petpulse_server::{api, migrator};
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 
 #[tokio::main]
 async fn main() {
     // Load .env if present (dotenvy)
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    petpulse_server::telemetry::init_telemetry("petpulse-server");
+
+    let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
 
     // Database Connection
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -43,8 +40,11 @@ async fn main() {
         .await
         .expect("Failed to run migrations");
 
+    // Initialize Metrics
+    petpulse_server::metrics::init_metrics(&db).await;
+
     // Use app logic directly here
-    let app = app(db, redis_client, gcs_client);
+    let app = app(db, redis_client, gcs_client, prometheus_layer, metric_handle);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("listening on {}", addr);
@@ -60,10 +60,13 @@ fn app(
     db: DatabaseConnection,
     redis_client: redis::Client,
     gcs_client: google_cloud_storage::client::Client,
+    prometheus_layer: axum_prometheus::PrometheusMetricLayer<'static>,
+    metric_handle: metrics_exporter_prometheus::PrometheusHandle,
 ) -> Router {
     let auth_routes = Router::new()
         .route("/register", post(api::auth::register))
-        .route("/login", post(api::auth::login));
+        .route("/login", post(api::auth::login))
+        .route("/webhook/alert", post(api::webhook::handle_alert));
 
     let protected_routes = Router::new()
         .route(
@@ -97,4 +100,77 @@ fn app(
         .layer(Extension(redis_client))
         .layer(Extension(gcs_client))
         .layer(tower_cookies::CookieManagerLayer::new())
+        .layer(prometheus_layer)
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+                    let matched_path = request
+                        .extensions()
+                        .get::<axum::extract::MatchedPath>()
+                        .map(|matched| matched.as_str());
+
+                    // Dynamic Span Name: "METHOD /path" (e.g., "POST /register")
+                    let span_name = if let Some(path) = matched_path {
+                        format!("{} {}", request.method(), path)
+                    } else {
+                        format!("{} {}", request.method(), request.uri().path())
+                    };
+                    
+                    // Simple IP extraction
+                    let user_ip = request
+                        .headers()
+                        .get("x-forwarded-for")
+                        .and_then(|v| v.to_str().ok())
+                        .or_else(|| {
+                            request
+                                .headers()
+                                .get("x-real-ip")
+                                .and_then(|v| v.to_str().ok())
+                        })
+                        .unwrap_or("unknown");
+
+                    // Create span with explicit fields for business logic to "fill in" later
+                    tracing::info_span!(
+                        "request",
+                        "otel.name" = span_name, // Override OpenTelemetry Span Name
+                        user_ip = user_ip,
+                        method = ?request.method(),
+                        uri = ?request.uri(),
+                        // Fields to be populated by handlers
+                        table = tracing::field::Empty,
+                        action = tracing::field::Empty,
+                        user_id = tracing::field::Empty,
+                        user_email = tracing::field::Empty, // Add email field
+                        pet_id = tracing::field::Empty,
+                        business_event = tracing::field::Empty,
+                        error = tracing::field::Empty,
+                        // status and latency recorded later
+                        status = tracing::field::Empty,
+                        latency = tracing::field::Empty,
+                    )
+                })
+                .on_request(|_request: &axum::http::Request<axum::body::Body>, _span: &tracing::Span| {
+                    // Disable default "started processing request" log to reduce noise
+                })
+                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, span: &tracing::Span| {
+                    // We can't easily access request details here unless stored in span or extensions.
+                    // The span already captures method/uri from make_span_with.
+                    // However, to make them appear "first" or top-level in the JSON event (not nested in span),
+                    // we would need to pass them down or rely on the formatter flattening.
+                    // Since we enabled flatten_event(true), span fields might still be separated.
+                    // Let's rely on the Span fields for context, but ensure the message is clear.
+                    
+                    // To strictly satisfy "Request body starts with API endpoint", we'll rely on the field order
+                    // in the macro, though JSON key order is not guaranteed.
+                    
+                    span.record("status", tracing::field::display(response.status()));
+                    span.record("latency", tracing::field::debug(latency));
+                    
+                    tracing::info!(
+                        "request completed"
+                    );
+                })
+        )
+        .route("/metrics", get(|| async move { metric_handle.render() }))
+        .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024))
 }
