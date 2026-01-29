@@ -73,10 +73,12 @@ impl TwilioNotifier {
                  Ok(result) => match result {
                     Ok(_) => {
                         info!("✅ Email sent successfully to {}", to_email_log);
+                        crate::metrics::increment_notifications_sent("email");
                         Ok(())
                     }
                     Err(e) => {
                         error!("❌ Failed to send email: {}", e);
+                        crate::metrics::increment_notifications_failed("email");
                         Err(format!("SendGrid Error: {}", e))
                     }
                  },
@@ -87,6 +89,7 @@ impl TwilioNotifier {
             info!("(Mock) 📧 Would send email to: {}", to_email);
             info!("(Mock) Subject: {}", subject);
             info!("(Mock) Body length: {} chars", body.len());
+            crate::metrics::increment_notifications_sent("email");
             Ok(())
         }
     }
@@ -110,10 +113,12 @@ impl TwilioNotifier {
             ).await {
                 Ok(_) => {
                     info!("✅ SMS sent successfully to {}", to_number);
+                    crate::metrics::increment_notifications_sent("sms");
                     Ok(())
                 }
                 Err(e) => {
                     error!("❌ Failed to send SMS: {}", e);
+                    crate::metrics::increment_notifications_failed("sms");
                     Err(format!("Twilio Error: {}", e))
                 }
             }
@@ -121,6 +126,7 @@ impl TwilioNotifier {
             // Mock mode
             info!("(Mock) 📱 Would send SMS to: {}", to_number);
             info!("(Mock) Body: {}", body);
+            crate::metrics::increment_notifications_sent("sms");
             Ok(())
         }
     }

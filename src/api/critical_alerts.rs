@@ -89,6 +89,12 @@ pub async fn acknowledge_alert(
     active_model.user_acknowledged_at = Set(Some(chrono::Utc::now().naive_utc()));
     active_model.user_response = Set(Some(payload.response));
     active_model.outcome = Set(Some("Acknowledged by User".to_string()));
+    
+    // Calculate duration
+    if let Ok(Some(alert_ro)) = alerts::Entity::find_by_id(alert_id).one(&db).await {
+         let duration = chrono::Utc::now().naive_utc().signed_duration_since(alert_ro.created_at);
+         crate::metrics::record_acknowledgment_time(duration.num_seconds() as f64);
+    }
 
     match active_model.update(&db).await {
         Ok(_) => (axum::http::StatusCode::OK, Json(serde_json::json!({"status": "acknowledged"}))).into_response(),

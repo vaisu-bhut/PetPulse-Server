@@ -180,6 +180,7 @@ impl ComfortLoop {
         
         // Phase 4: Handle Critical Alerts specifically
         if severity_level == "critical" {
+            crate::metrics::increment_critical_alerts(db_pet_id);
             // Trigger Critical Notification Branch
             self.handle_critical_alert(&payload, alert_uuid, &critical_indicators, &recommended_actions).await;
             return; // Skip normal monitoring/resolution loop for critical alerts

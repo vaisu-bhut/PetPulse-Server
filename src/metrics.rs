@@ -62,3 +62,19 @@ pub async fn increment_pet_videos(db: &DatabaseConnection, pet_id: i32) {
         metrics::gauge!("petpulse_pet_videos_total", "name" => p.name).increment(1.0);
     }
 }
+
+pub fn increment_critical_alerts(pet_id: i32) {
+    metrics::counter!("petpulse_critical_alerts_total", "pet_id" => pet_id.to_string()).increment(1);
+}
+
+pub fn increment_notifications_sent(channel: &str) {
+    metrics::counter!("petpulse_notifications_sent_total", "channel" => channel.to_string()).increment(1);
+}
+
+pub fn increment_notifications_failed(channel: &str) {
+    metrics::counter!("petpulse_notifications_failed_total", "channel" => channel.to_string()).increment(1);
+}
+
+pub fn record_acknowledgment_time(seconds: f64) {
+    metrics::histogram!("petpulse_alert_acknowledgment_duration_seconds").record(seconds);
+}

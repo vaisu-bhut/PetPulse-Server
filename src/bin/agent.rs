@@ -20,6 +20,11 @@ async fn main() {
     
     tracing::info!("Starting PetPulse Agent Service...");
 
+    // Initialize Prometheus Metrics
+    let metric_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()
+        .expect("failed to install Prometheus recorder");
+
     // Database Connection
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db = Database::connect(&database_url)
@@ -55,6 +60,7 @@ async fn main() {
         .route("/health", get(health_check))
         .route("/alert", post(handle_alert))
         .route("/alert/critical", post(handle_alert))
+        .route("/metrics", get(move || std::future::ready(metric_handle.render())))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
