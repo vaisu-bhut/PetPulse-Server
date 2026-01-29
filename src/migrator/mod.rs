@@ -6,6 +6,7 @@ mod m20260123_000003_create_clips;
 mod m20260123_000004_alter_pet_videos;
 mod m20260123_000005_alter_daily_digest;
 mod m20260127_000001_create_alerts_table;
+mod m20260128_000001_enhance_alerts_table;
 
 pub struct Migrator;
 
@@ -19,6 +20,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260123_000004_alter_pet_videos::Migration),
             Box::new(m20260123_000005_alter_daily_digest::Migration),
             Box::new(m20260127_000001_create_alerts_table::Migration),
+            Box::new(m20260128_000001_enhance_alerts_table::Migration),
         ]
     }
 }

@@ -262,25 +262,78 @@ async fn process_video(
                         .as_str()
                         .map(|s| s.to_string()));
                     active.is_unusual = Set(analysis_result["is_unusual"].as_bool().unwrap_or(false));
+                    
+                    // Extract severity level (Phase 3 enhancement)
+                    let severity_level = analysis_result["severity_level"]
+                        .as_str()
+                        .unwrap_or("low")
+                        .to_string();
+                    
+                    // Extract critical indicators if present
+                    let critical_indicators = analysis_result.get("critical_indicators")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default();
+                    
+                    // Extract recommended actions if present
+                    let recommended_actions = analysis_result.get("recommended_actions")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default();
 
                     tracing::info!(
-                        "Updating video {} with: mood={:?}, unusual={:?}",
+                        "Updating video {} with: mood={:?}, unusual={:?}, severity={}",
                         video_id,
                         active.mood,
-                        active.is_unusual
+                        active.is_unusual,
+                        severity_level
                     );
                     
-                    if active.is_unusual.clone().unwrap() {
-                         metrics::counter!("petpulse_unusual_events_total", "pet_id" => active.pet_id.clone().unwrap().to_string()).increment(1);
-                         
-                         // Send alert webhook to agent service
-                         let pet_id = active.pet_id.clone().unwrap();
-                         let description = active.description.clone().unwrap().unwrap_or_else(|| "Unusual activity detected".to_string());
-                         let mood = active.mood.clone().unwrap();
-                         
-                         tokio::spawn(async move {
-                             send_alert_webhook(video_id, pet_id, description, mood).await;
-                         });
+                    // Route alerts based on severity level (Phase 3)
+                    if severity_level == "critical" {
+                        // CRITICAL ALERT PATH
+                        metrics::counter!("petpulse_critical_alerts_total", "pet_id" => active.pet_id.clone().unwrap().to_string()).increment(1);
+                        
+                        tracing::warn!(
+                            "🚨 CRITICAL alert detected for video_id={}, pet_id={}, indicators={:?}",
+                            video_id,
+                            active.pet_id.clone().unwrap(),
+                            critical_indicators
+                        );
+                        
+                        let pet_id = active.pet_id.clone().unwrap();
+                        let description = active.description.clone().unwrap().unwrap_or_else(|| "Critical health condition detected".to_string());
+                        let mood = active.mood.clone().unwrap();
+                        
+                        tokio::spawn(async move {
+                            send_critical_alert_webhook(
+                                video_id,
+                                pet_id,
+                                description,
+                                mood,
+                                critical_indicators,
+                                recommended_actions,
+                            ).await;
+                        });
+                    } else if active.is_unusual.clone().unwrap() {
+                        // NORMAL UNUSUAL BEHAVIOR PATH
+                        metrics::counter!("petpulse_unusual_events_total", "pet_id" => active.pet_id.clone().unwrap().to_string()).increment(1);
+                        
+                        let pet_id = active.pet_id.clone().unwrap();
+                        let description = active.description.clone().unwrap().unwrap_or_else(|| "Unusual activity detected".to_string());
+                        let mood = active.mood.clone().unwrap();
+                        
+                        tokio::spawn(async move {
+                            send_alert_webhook(video_id, pet_id, description, mood, severity_level).await;
+                        });
                     }
 
                     match active.update(db).await {
@@ -618,15 +671,25 @@ async fn send_alert_webhook(
     pet_id: i32,
     description: String,
     mood: Option<String>,
+    severity_level: String,
 ) {
     let agent_url = std::env::var("AGENT_SERVICE_URL")
         .unwrap_or_else(|_| "http://agent:3002/alert".to_string());
+    
+    // Map severity_level to legacy severity field for backward compatibility
+    let severity = match severity_level.as_str() {
+        "info" => "low",
+        "low" => "medium",
+        "medium" => "high",
+        "high" => "high",
+        _ => "medium",
+    };
     
     let alert_payload = AlertPayload {
         alert_id: Uuid::new_v4().to_string(),
         pet_id: pet_id.to_string(),
         alert_type: AlertType::UnusualBehavior,
-        severity: "high".to_string(),
+        severity: severity.to_string(),
         message: Some(description.clone()),
         metric_value: None,
         baseline_value: None,
@@ -636,6 +699,7 @@ async fn send_alert_webhook(
         context: Some(serde_json::json!({
             "mood": mood,
             "description": description,
+            "severity_level": severity_level,
         })),
         title: Some("Unusual Behavior Detected".to_string()),
         state: Some("alerting".to_string()),
@@ -643,9 +707,10 @@ async fn send_alert_webhook(
     };
     
     tracing::info!(
-        "Sending alert webhook for video_id={}, pet_id={}, alert_type=unusual_behavior",
+        "Sending alert webhook for video_id={}, pet_id={}, severity_level={}",
         video_id,
-        pet_id
+        pet_id,
+        severity_level
     );
     
     let client = reqwest::Client::new();
@@ -663,6 +728,70 @@ async fn send_alert_webhook(
         }
         Err(e) => {
             tracing::error!("Failed to send alert webhook to agent service: {}", e);
+        }
+    }
+}
+
+// ============================================================================
+// Critical Alert Webhook (Phase 3)
+// ============================================================================
+
+async fn send_critical_alert_webhook(
+    video_id: Uuid,
+    pet_id: i32,
+    description: String,
+    mood: Option<String>,
+    critical_indicators: Vec<String>,
+    recommended_actions: Vec<String>,
+) {
+    let agent_url = std::env::var("AGENT_SERVICE_URL")
+        .unwrap_or_else(|_| "http://agent:3002/alert/critical".to_string());
+    
+    let alert_payload = AlertPayload {
+        alert_id: Uuid::new_v4().to_string(),
+        pet_id: pet_id.to_string(),
+        alert_type: AlertType::UnusualBehavior, // Will be enhanced to CriticalHealth in Phase 5
+        severity: "critical".to_string(),
+        message: Some(description.clone()),
+        metric_value: None,
+        baseline_value: None,
+        deviation_factor: None,
+        video_id: Some(video_id.to_string()),
+        timestamp: Some(Utc::now().to_rfc3339()),
+        context: Some(serde_json::json!({
+            "mood": mood,
+            "description": description,
+            "severity_level": "critical",
+            "critical_indicators": critical_indicators,
+            "recommended_actions": recommended_actions,
+        })),
+        title: Some("🚨 CRITICAL ALERT: Immediate Attention Required".to_string()),
+        state: Some("critical".to_string()),
+        eval_matches: None,
+    };
+    
+    tracing::warn!(
+        "🚨 Sending CRITICAL alert webhook for video_id={}, pet_id={}, indicators={:?}",
+        video_id,
+        pet_id,
+        critical_indicators
+    );
+    
+    let client = reqwest::Client::new();
+    match client.post(&agent_url).json(&alert_payload).send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                tracing::info!("✅ Successfully sent CRITICAL alert webhook to agent service");
+            } else {
+                tracing::error!(
+                    "❌ Agent service returned error for CRITICAL alert: {} - {}",
+                    resp.status(),
+                    resp.text().await.unwrap_or_else(|_| "<unable to read response>".to_string())
+                );
+            }
+        }
+        Err(e) => {
+            tracing::error!("❌ Failed to send CRITICAL alert webhook to agent service: {}", e);
         }
     }
 }
