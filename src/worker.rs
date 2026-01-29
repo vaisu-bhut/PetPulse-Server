@@ -704,6 +704,9 @@ async fn send_alert_webhook(
         title: Some("Unusual Behavior Detected".to_string()),
         state: Some("alerting".to_string()),
         eval_matches: None,
+        severity_level: Some(severity_level.clone()),
+        critical_indicators: None,
+        recommended_actions: None,
     };
     
     tracing::info!(
@@ -768,6 +771,9 @@ async fn send_critical_alert_webhook(
         title: Some("🚨 CRITICAL ALERT: Immediate Attention Required".to_string()),
         state: Some("critical".to_string()),
         eval_matches: None,
+        severity_level: Some("critical".to_string()),
+        critical_indicators: Some(critical_indicators.clone()),
+        recommended_actions: Some(recommended_actions),
     };
     
     tracing::warn!(

@@ -96,6 +96,10 @@ fn app(
         .route("/health", get(health_check))
         .merge(auth_routes)
         .merge(protected_routes)
+        // Critical Alert Routes
+        .route("/api/alerts/critical", get(api::critical_alerts::get_pending_critical_alerts))
+        .route("/api/alerts/:id/acknowledge", post(api::critical_alerts::acknowledge_alert))
+        .route("/api/alerts/:id/resolve", post(api::critical_alerts::resolve_alert))
         .layer(Extension(db))
         .layer(Extension(redis_client))
         .layer(Extension(gcs_client))

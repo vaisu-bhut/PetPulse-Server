@@ -25,6 +25,10 @@ pub struct AlertPayload {
     pub state: Option<String>,
     #[serde(rename = "evalMatches")]
     pub eval_matches: Option<Vec<EvalMatch>>,
+    // Phase 3 & 4: Critical Alert Fields
+    pub severity_level: Option<String>, 
+    pub critical_indicators: Option<Vec<String>>,
+    pub recommended_actions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -69,15 +73,21 @@ impl ToString for AlertType {
     }
 }
 
+use crate::notifications::TwilioNotifier;
+use sea_orm::ActiveValue::NotSet;
+
 // Intervention Logic
 pub struct ComfortLoop {
     db: DatabaseConnection,
-    _gemini_client: Option<()>, // Placeholder for Gemini Client
+    notifier: TwilioNotifier,
 }
 
 impl ComfortLoop {
     pub fn new(db: DatabaseConnection) -> Self {
-        Self { db, _gemini_client: None }
+        Self { 
+            db, 
+            notifier: TwilioNotifier::new() 
+        }
     }
 
     pub async fn process_alert(&self, payload: AlertPayload) {
@@ -92,12 +102,29 @@ impl ComfortLoop {
             1
         });
 
+        // Extract detailed fields from payload or context
+        let severity_level = payload.severity_level.clone()
+            .or_else(|| payload.context.as_ref()
+                .and_then(|c| c.get("severity_level").and_then(|v| v.as_str().map(String::from))))
+            .unwrap_or_else(|| "low".to_string());
+
+        let critical_indicators = payload.critical_indicators.clone()
+            .or_else(|| payload.context.as_ref()
+                .and_then(|c| c.get("critical_indicators").and_then(|v| serde_json::from_value(v.clone()).ok())));
+
+        let recommended_actions = payload.recommended_actions.clone()
+            .or_else(|| payload.context.as_ref()
+                .and_then(|c| c.get("recommended_actions").and_then(|v| serde_json::from_value(v.clone()).ok())));
+
         let active_model = alerts::ActiveModel {
             id: Set(alert_uuid),
             pet_id: Set(db_pet_id),
             alert_type: Set(payload.alert_type.to_string()),
             severity: Set(payload.severity.clone()),
             message: Set(payload.message.clone()),
+            severity_level: Set(severity_level.clone()),
+            critical_indicators: Set(critical_indicators.clone().map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))),
+            recommended_actions: Set(recommended_actions.clone().map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))),
             payload: Set(serde_json::to_value(&payload).unwrap_or_default()),
             created_at: Set(chrono::Utc::now().naive_utc()),
             ..Default::default()
@@ -150,6 +177,13 @@ impl ComfortLoop {
         if let Err(e) = alerts::Entity::update(update_model).exec(&self.db).await {
             error!("Failed to update alert intervention: {}", e);
         }
+        
+        // Phase 4: Handle Critical Alerts specifically
+        if severity_level == "critical" {
+            // Trigger Critical Notification Branch
+            self.handle_critical_alert(&payload, alert_uuid, &critical_indicators, &recommended_actions).await;
+            return; // Skip normal monitoring/resolution loop for critical alerts
+        }
 
         // 6. Continuous Monitoring - wait and check for resolution
         info!("Monitoring for resolution... Checking for new normal videos.");
@@ -192,39 +226,80 @@ impl ComfortLoop {
         }
     }
 
+    async fn handle_critical_alert(
+        &self, 
+        payload: &AlertPayload, 
+        alert_uuid: Uuid,
+        critical_indicators: &Option<Vec<String>>,
+        recommended_actions: &Option<Vec<String>>
+    ) {
+        info!("🚨 HANDLING CRITICAL ALERT: {}", alert_uuid);
+        
+        let owner_email = std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string());
+        let owner_phone = std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
+        
+        let video_link = if let Some(vid) = &payload.video_id {
+            // In a real scenario, generate a signed URL here.
+            // For now, use a direct link placeholder
+            format!("https://petpulse.dashboard/videos/{}", vid)
+        } else {
+            "https://petpulse.dashboard".to_string()
+        };
+
+        // Send Notifications
+        self.notifier.notify_critical_alert(
+            &owner_email,
+            &owner_phone,
+            "Your Pet",
+            "CRITICAL",
+            payload.message.as_deref().unwrap_or("Critical health indicator detected"),
+            critical_indicators.as_deref().unwrap_or(&[]),
+            recommended_actions.as_deref().unwrap_or(&[]),
+            &video_link
+        ).await;
+
+        // Update Database Tracking
+        let update_model = alerts::ActiveModel {
+            id: Set(alert_uuid),
+            notification_sent: Set(true),
+            notification_channels: Set(Some(serde_json::json!(["email", "sms"]))),
+            user_notified_at: Set(Some(chrono::Utc::now().naive_utc())),
+            intervention_action: Set(Some("CRITICAL_NOTIFICATION_SENT".to_string())),
+            outcome: Set(Some("Waiting for user acknowledgement".to_string())),
+            ..Default::default()
+        };
+        
+        if let Err(e) = alerts::Entity::update(update_model).exec(&self.db).await {
+            error!("Failed to update alert notification status: {}", e);
+        }
+    }
+
     async fn decide_intervention(&self, payload: &AlertPayload, alert_count: u64) -> Intervention {
-        // Escalating intervention based on alert count
-        // 1st alert: Gentle intervention
-        // 2nd alert: Moderate intervention  
-        // 3rd+ alert: Strong intervention
+        // If critical, immediately escalate to Notification (handled in main loop branching, but good for safety)
+        if let Some(severity) = &payload.severity_level {
+            if severity == "critical" {
+                return Intervention::NotifyUser(NotificationLevel::Critical);
+            }
+        }
         
+        // Standard Escalation Logic
         info!("Deciding intervention for alert_type={:?}, alert_count={}", payload.alert_type, alert_count);
-        
         match alert_count {
-            1 => {
-                // First alert - gentle intervention
-                match payload.alert_type {
-                    AlertType::Pacing | AlertType::Restlessness => Intervention::DimLights,
-                    AlertType::Vocalization | AlertType::AttentionSeeking => Intervention::PlayCalmingMusic,
-                    AlertType::UnusualBehavior => Intervention::PlayCalmingMusic,
-                    _ => Intervention::LogOnly,
-                }
+            0..=1 => match payload.alert_type {
+                AlertType::Pacing | AlertType::Restlessness => Intervention::AdjustEnvironment(EnvironmentAction::DimLights), 
+                AlertType::Vocalization | AlertType::AttentionSeeking => Intervention::PlayCalmingMusic,
+                AlertType::UnusualBehavior => Intervention::PlayCalmingMusic,
+                _ => Intervention::LogOnly,
             },
-            2 => {
-                // Second alert - moderate intervention
-                match payload.alert_type {
-                    AlertType::Pacing | AlertType::Restlessness | AlertType::UnusualBehavior => Intervention::PlayOwnerVoice,
-                    AlertType::Vocalization | AlertType::AttentionSeeking => Intervention::PlayOwnerVoice,
-                    _ => Intervention::LogOnly,
-                }
+            2..=3 => match payload.alert_type {
+                AlertType::Pacing | AlertType::Restlessness => Intervention::PlayOwnerVoice,
+                AlertType::Vocalization => Intervention::DispenseTreat,
+                _ => Intervention::PlayOwnerVoice,
             },
             _ => {
-                // Third+ alert - strong intervention (all types get owner voice)
-                info!("Alert escalation: {} alerts in last hour, using strongest intervention", alert_count);
-                match payload.alert_type {
-                    AlertType::ProcessingError | AlertType::QueueDepthHigh => Intervention::LogOnly,
-                    _ => Intervention::PlayOwnerVoice,
-                }
+                 // 4+ alerts - strong intervention
+                 info!("Alert escalation: {} alerts in last hour, flagging for user notification", alert_count);
+                 Intervention::NotifyUser(NotificationLevel::Standard)
             }
         }
     }
@@ -232,28 +307,35 @@ impl ComfortLoop {
     async fn execute_action(&self, action: &Intervention) {
         info!("Executing intervention: {:?}", action);
         // TODO: Call Smart Home API / IoT Hub
-        // User Assurance: "logs this Intervention"
         match action {
-            Intervention::PlayCalmingMusic => {
-                info!("Action: Playing calming music playlist");
-            },
-            Intervention::PlayOwnerVoice => {
-                info!("Action: Playing owner voice note");
-            },
-            Intervention::DimLights => {
-                info!("Action: Dimming lights to 50%");
-            },
-            Intervention::LogOnly => {
-                info!("Action: Logging alert only");
-            }
+            Intervention::PlayCalmingMusic => info!("🎶 Action: Playing calming music playlist"),
+            Intervention::PlayOwnerVoice => info!("🗣️ Action: Playing owner voice note"),
+            Intervention::DispenseTreat => info!("🍬 Action: Dispensing treat"),
+            Intervention::AdjustEnvironment(env_action) => info!("💡 Action: Adjusting environment: {:?}", env_action),
+            Intervention::NotifyUser(level) => info!("📱 Action: Notifying user (Level: {:?})", level),
+            Intervention::LogOnly => info!("📝 Action: Logging alert only"),
         }
     }
 }
 
-#[derive(Debug)]
-enum Intervention {
+#[derive(Debug, Clone, Serialize)]
+pub enum Intervention {
     PlayCalmingMusic,
     PlayOwnerVoice,
-    DimLights,
+    DispenseTreat,
+    AdjustEnvironment(EnvironmentAction),
+    NotifyUser(NotificationLevel),
     LogOnly,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum EnvironmentAction {
+    DimLights,
+    WarmTemperature,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum NotificationLevel {
+    Standard,
+    Critical,
 }

@@ -54,6 +54,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/alert", post(handle_alert))
+        .route("/alert/critical", post(handle_alert))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));

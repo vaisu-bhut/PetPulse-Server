@@ -4,3 +4,4 @@ pub mod middleware;
 pub mod pet;
 pub mod user;
 pub mod webhook;
+pub mod critical_alerts;
