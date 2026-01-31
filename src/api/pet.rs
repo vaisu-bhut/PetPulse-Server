@@ -16,6 +16,27 @@ pub struct CreatePetRequest {
     bio: String,
 }
 
+pub async fn list_user_pets(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user_id): Extension<i32>,
+) -> Response {
+    use sea_orm::ColumnTrait;
+    use sea_orm::QueryFilter;
+    
+    match pet::Entity::find()
+        .filter(pet::Column::UserId.eq(user_id))
+        .all(&db)
+        .await
+    {
+        Ok(pets) => (StatusCode::OK, Json(pets)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn create_pet(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user_id): Extension<i32>,

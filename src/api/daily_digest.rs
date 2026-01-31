@@ -1,6 +1,6 @@
-use crate::entities::{daily_digest, pet_video, DailyDigest, PetVideo};
+use crate::entities::{daily_digest, pet_video, DailyDigest, PetVideo, pet};
 use axum::{
-    extract::{Extension, Multipart, Path},
+    extract::{Extension, Multipart, Path, Query},
     http::StatusCode,
     response::{IntoResponse, Json},
 };
@@ -8,7 +8,8 @@ use chrono::Utc;
 use google_cloud_storage::client::Client as GcsClient;
 use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType};
 use redis::AsyncCommands;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, PaginatorTrait};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -359,4 +360,100 @@ pub async fn generate_daily_digest(
         "count": generated_count,
         "date": date
     })))
+}
+
+#[derive(Deserialize)]
+pub struct DigestPaginationParams {
+    #[serde(default = "default_digest_page")]
+    pub page: u64,
+    #[serde(default = "default_digest_page_size")]
+    pub page_size: u64,
+}
+
+fn default_digest_page() -> u64 { 1 }
+fn default_digest_page_size() -> u64 { 10 }
+
+#[derive(Serialize)]
+pub struct DigestResponse {
+    pub id: Uuid,
+    pub pet_id: i32,
+    pub date: chrono::NaiveDate,
+    pub summary: String,
+    pub moods: Option<serde_json::Value>,
+    pub activities: Option<serde_json::Value>,
+    pub unusual_events: Option<serde_json::Value>,
+    pub total_videos: i32,
+    pub created_at: String,
+}
+
+#[derive(Serialize)]
+pub struct DigestListResponse {
+    pub digests: Vec<DigestResponse>,
+    pub total: u64,
+    pub page: u64,
+    pub page_size: u64,
+}
+
+// GET /pets/:id/digests - List daily digests for a pet
+pub async fn list_pet_digests(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user_id): Extension<i32>,
+    Path(pet_id): Path<i32>,
+    Query(params): Query<DigestPaginationParams>,
+) -> impl IntoResponse {
+    // Verify pet belongs to user
+    let _pet = match pet::Entity::find_by_id(pet_id).one(&db).await {
+        Ok(Some(p)) if p.user_id == user_id => p,
+        Ok(Some(_)) => return (StatusCode::FORBIDDEN, "Not your pet").into_response(),
+        Ok(None) => return (StatusCode::NOT_FOUND, "Pet not found").into_response(),
+        Err(e) => {
+            tracing::error!("Failed to fetch pet: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Build query
+    let query = DailyDigest::find()
+        .filter(daily_digest::Column::PetId.eq(pet_id))
+        .order_by_desc(daily_digest::Column::Date);
+
+    // Get total count
+    let total = match query.clone().count(&db).await {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::error!("Failed to count digests: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to count digests").into_response();
+        }
+    };
+
+    // Fetch paginated results
+    let paginator = query.paginate(&db, params.page_size);
+    let digests_result = paginator.fetch_page(params.page - 1).await;
+
+    match digests_result {
+        Ok(digests) => {
+            let response: Vec<DigestResponse> = digests.into_iter().map(|digest| DigestResponse {
+                id: digest.id,
+                pet_id: digest.pet_id,
+                date: digest.date,
+                summary: digest.summary,
+                moods: digest.moods,
+                activities: digest.activities,
+                unusual_events: digest.unusual_events,
+                total_videos: digest.total_videos,
+                created_at: digest.created_at.to_rfc3339(),
+            }).collect();
+            
+            (StatusCode::OK, Json(DigestListResponse {
+                digests: response,
+                total,
+                page: params.page,
+                page_size: params.page_size,
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch digests: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch digests").into_response()
+        }
+    }
 }
