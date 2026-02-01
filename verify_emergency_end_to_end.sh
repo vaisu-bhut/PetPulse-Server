@@ -9,7 +9,7 @@ set -e
 # 3. Pet 2: Manual Trigger of Critical Alert to Agent -> Verify Notification/QuickAction
 # ==============================================================================
 
-SERVER_URL="http://localhost:3000"
+SERVER_URL="http://localhost:8000"
 AGENT_URL="http://localhost:3002"
 COOKIE_JAR="cookies_final.txt"
 EMAIL="vasubhut157@gmail.com"

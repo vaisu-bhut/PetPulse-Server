@@ -23,7 +23,7 @@ services:
       dockerfile: Dockerfile.server
     container_name: petpulse_server
     ports:
-      - "3000:3000"
+      - "8000:8000"
     environment:
       DATABASE_URL: postgres://user:password@db:5432/petpulse
       REDIS_URL: redis://redis:6379

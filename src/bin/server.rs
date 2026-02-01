@@ -46,7 +46,7 @@ async fn main() {
     // Use app logic directly here
     let app = app(db, redis_client, gcs_client, prometheus_layer, metric_handle);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     tracing::info!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -95,6 +95,7 @@ fn app(
         )
         // Alert routes - protected
         .route("/alerts", get(api::critical_alerts::list_user_alerts))
+        .route("/alerts/:id", get(api::critical_alerts::get_alert))
         .route("/pets/:id/alerts", get(api::critical_alerts::list_pet_alerts))
         .route("/alerts/:id/acknowledge", post(api::critical_alerts::acknowledge_alert))
         .route("/alerts/:id/resolve", post(api::critical_alerts::resolve_alert))

@@ -331,3 +331,44 @@ pub async fn resolve_alert(
         }
     }
 }
+
+// GET /alerts/:id
+pub async fn get_alert(
+    Extension(db): Extension<DatabaseConnection>,
+    Path(alert_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let alert = match Alerts::find_by_id(alert_id).one(&db).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response(),
+        Err(e) => {
+            error!("Failed to fetch alert: {}", e);
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let pet_name = match pet::Entity::find_by_id(alert.pet_id).one(&db).await {
+        Ok(Some(p)) => Some(p.name),
+        _ => None,
+    };
+
+    let response = AlertResponse {
+        id: alert.id,
+        pet_id: alert.pet_id,
+        pet_name,
+        alert_type: alert.alert_type,
+        severity_level: alert.severity_level,
+        message: alert.message,
+        critical_indicators: alert.critical_indicators,
+        recommended_actions: alert.recommended_actions,
+        created_at: alert.created_at,
+        outcome: alert.outcome,
+        user_response: alert.user_response,
+        user_acknowledged_at: alert.user_acknowledged_at,
+        user_notified_at: alert.user_notified_at,
+        notification_sent: alert.notification_sent,
+        notification_channels: alert.notification_channels,
+        intervention_action: alert.intervention_action,
+    };
+
+    (axum::http::StatusCode::OK, Json(response)).into_response()
+}
