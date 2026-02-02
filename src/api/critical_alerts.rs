@@ -134,7 +134,6 @@ pub async fn list_user_alerts(
                 notification_sent: alert.notification_sent,
 
                 notification_channels: alert.notification_channels,
-                notification_channels: alert.notification_channels,
                 intervention_action: alert.intervention_action,
                 video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
             }).collect();
@@ -211,7 +210,6 @@ pub async fn list_pet_alerts(
                 user_notified_at: alert.user_notified_at,
                 notification_sent: alert.notification_sent,
                 notification_channels: alert.notification_channels,
-                notification_channels: alert.notification_channels,
                 intervention_action: alert.intervention_action,
                 video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
             }).collect();
@@ -262,7 +260,6 @@ pub async fn get_pending_critical_alerts(
                 user_acknowledged_at: alert.user_acknowledged_at,
                 user_notified_at: alert.user_notified_at,
                 notification_sent: alert.notification_sent,
-                notification_channels: alert.notification_channels,
                 notification_channels: alert.notification_channels,
                 intervention_action: alert.intervention_action,
                 video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
@@ -373,7 +370,6 @@ pub async fn get_alert(
         user_acknowledged_at: alert.user_acknowledged_at,
         user_notified_at: alert.user_notified_at,
         notification_sent: alert.notification_sent,
-        notification_channels: alert.notification_channels,
         notification_channels: alert.notification_channels,
         intervention_action: alert.intervention_action,
         video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),

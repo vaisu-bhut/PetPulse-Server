@@ -84,10 +84,10 @@ pub struct ComfortLoop {
 }
 
 impl ComfortLoop {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub async fn new(db: DatabaseConnection) -> Self {
         Self { 
             db, 
-            notifier: TwilioNotifier::new(),
+            notifier: TwilioNotifier::new().await,
             gemini: crate::gemini::GeminiClient::new(),
         }
     }

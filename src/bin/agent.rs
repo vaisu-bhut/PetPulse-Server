@@ -35,7 +35,7 @@ async fn main() {
     let (tx, mut rx) = mpsc::channel::<AlertPayload>(100);
 
     // Initialize Comfort Loop Logic (Shared)
-    let comfort_loop = Arc::new(ComfortLoop::new(db));
+    let comfort_loop = Arc::new(ComfortLoop::new(db).await);
 
     // Spawn Dispatcher Task with Concurrency Limit
 
