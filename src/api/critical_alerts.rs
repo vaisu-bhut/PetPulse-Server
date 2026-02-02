@@ -41,6 +41,7 @@ pub struct AlertResponse {
 
     pub notification_channels: Option<serde_json::Value>,
     pub intervention_action: Option<String>,
+    pub video_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -133,7 +134,9 @@ pub async fn list_user_alerts(
                 notification_sent: alert.notification_sent,
 
                 notification_channels: alert.notification_channels,
+                notification_channels: alert.notification_channels,
                 intervention_action: alert.intervention_action,
+                video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
             }).collect();
             
             (axum::http::StatusCode::OK, Json(AlertListResponse {
@@ -208,7 +211,9 @@ pub async fn list_pet_alerts(
                 user_notified_at: alert.user_notified_at,
                 notification_sent: alert.notification_sent,
                 notification_channels: alert.notification_channels,
+                notification_channels: alert.notification_channels,
                 intervention_action: alert.intervention_action,
+                video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
             }).collect();
             
             (axum::http::StatusCode::OK, Json(AlertListResponse {
@@ -258,7 +263,9 @@ pub async fn get_pending_critical_alerts(
                 user_notified_at: alert.user_notified_at,
                 notification_sent: alert.notification_sent,
                 notification_channels: alert.notification_channels,
+                notification_channels: alert.notification_channels,
                 intervention_action: alert.intervention_action,
+                video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
             }).collect();
 
             
@@ -367,7 +374,9 @@ pub async fn get_alert(
         user_notified_at: alert.user_notified_at,
         notification_sent: alert.notification_sent,
         notification_channels: alert.notification_channels,
+        notification_channels: alert.notification_channels,
         intervention_action: alert.intervention_action,
+        video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
     };
 
     (axum::http::StatusCode::OK, Json(response)).into_response()
