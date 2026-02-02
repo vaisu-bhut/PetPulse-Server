@@ -258,4 +258,42 @@ impl GeminiClient {
             .map(|s| s.to_string())
             .ok_or("URI not found in file info".to_string())
     }
+    
+    pub async fn generate_text(&self, prompt: &str) -> Result<String, String> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            self.model, self.api_key
+        );
+
+        let body = json!({
+            "contents": [{
+                "parts": [
+                    { "text": prompt }
+                ]
+            }]
+        });
+
+        let res = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Generate Request Failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(format!("Generate Failed: {}", text));
+        }
+
+        let json: Value = res.json().await.map_err(|e| e.to_string())?;
+        
+        // Extract text
+        let text = json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or("No text in Gemini response")?
+            .to_string();
+
+        Ok(text)
+    }
 }
