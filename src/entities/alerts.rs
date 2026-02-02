@@ -16,6 +16,16 @@ pub struct Model {
     pub intervention_time: Option<DateTime>,
     pub outcome: Option<String>,
     pub created_at: DateTime,
+    // New fields for critical alert system
+    pub severity_level: String,
+    pub critical_indicators: Option<Json>,
+    pub recommended_actions: Option<Json>,
+    pub user_notified_at: Option<DateTime>,
+    pub user_acknowledged_at: Option<DateTime>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub user_response: Option<String>,
+    pub notification_sent: bool,
+    pub notification_channels: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

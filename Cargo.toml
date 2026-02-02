@@ -42,9 +42,14 @@ tower-cookies = "0.10"
 sea-orm-migration = { version = "1.0", features = ["sqlx-postgres", "runtime-tokio-rustls"], default-features = false }
 redis = { version = "0.27", features = ["tokio-comp"] }
 google-cloud-storage = "0.23"
+google-cloud-pubsub = "0.23"
 google-cloud-auth = "0.23"
+google-cloud-googleapis = { version = "0.12", features = ["pubsub"] }
 mime = "0.3"
 mime_guess = "2.0"
+sendgrid = "0.19"
+twilio = "1.1" # Using current crate for twilio
+handlebars = "4.3" # For email templates
 
 # Observability
 opentelemetry = { version = "0.22", features = ["metrics", "trace"] }

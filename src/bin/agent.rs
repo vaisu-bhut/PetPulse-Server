@@ -20,6 +20,11 @@ async fn main() {
     
     tracing::info!("Starting PetPulse Agent Service...");
 
+    // Initialize Prometheus Metrics
+    let metric_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()
+        .expect("failed to install Prometheus recorder");
+
     // Database Connection
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db = Database::connect(&database_url)
@@ -30,7 +35,7 @@ async fn main() {
     let (tx, mut rx) = mpsc::channel::<AlertPayload>(100);
 
     // Initialize Comfort Loop Logic (Shared)
-    let comfort_loop = Arc::new(ComfortLoop::new(db));
+    let comfort_loop = Arc::new(ComfortLoop::new(db).await);
 
     // Spawn Dispatcher Task with Concurrency Limit
 
@@ -54,6 +59,8 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/alert", post(handle_alert))
+        .route("/alert/critical", post(handle_alert))
+        .route("/metrics", get(move || std::future::ready(metric_handle.render())))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));

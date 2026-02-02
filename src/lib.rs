@@ -9,3 +9,4 @@ pub mod agent;
 pub use redis;
 pub use sea_orm;
 pub mod metrics;
+pub mod notifications;

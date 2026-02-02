@@ -3,4 +3,8 @@ pub mod daily_digest;
 pub mod middleware;
 pub mod pet;
 pub mod user;
+pub mod video;
 pub mod webhook;
+pub mod critical_alerts;
+pub mod emergency_contacts;
+pub mod quick_actions;

@@ -149,7 +149,7 @@ impl GeminiClient {
             self.model, self.api_key
         );
 
-        let prompt = "Analyze this video of a pet. precise behavior analysis. \n\
+        let prompt = "Analyze this video of a pet with focus on both behavioral patterns AND critical health/safety indicators. \n\
         Return a valid JSON object (without markdown code blocks) with the following structure. USE DOUBLE QUOTES for keys and strings: \n\
         { \n\
             \"activities\": [ \n\
@@ -163,15 +163,34 @@ impl GeminiClient {
                 } \n\
             ], \n\
             \"is_unusual\": boolean, \n\
+            \"severity_level\": \"string (one of: info, low, medium, high, critical)\", \n\
+            \"critical_indicators\": [\"string (specific observations that indicate critical condition, empty if none)\"], \n\
+            \"recommended_actions\": [\"string (specific actionable steps for owner, empty if none)\"], \n\
             \"summary_mood\": \"string (Overall mood)\", \n\
             \"summary_description\": \"string (Overall description)\" \n\
         } \n\
-        Identify if there is any unusual or concerning behavior and set \"is_unusual\" to true. \n\
-        You MUST classify the unusual activity as exactly one of these three categories if applicable: 'Pacing', 'Barking', or 'Whining'. \n\
-        - If the pet is walking in circles or back and forth repeatedly, label it 'Pacing'. \n\
-        - If the pet is making loud vocal sounds, label it 'Barking'. \n\
-        - If the pet is making high-pitched sad sounds, label it 'Whining'. \n\
-        - If the behavior is unusual but doesn't fit these, provide a descriptive activity name, but prioritize the standard categories.";
+        \n\
+        SEVERITY CLASSIFICATION GUIDELINES: \n\
+        - \"info\": Normal, healthy behavior. No concerns. \n\
+        - \"low\": Minor unusual behavior (first occurrence of pacing, barking, whining). \n\
+        - \"medium\": Concerning patterns (agitation, restlessness, repeated unusual behavior). \n\
+        - \"high\": Urgent behavioral distress (extreme pacing, excessive vocalization, door scratching). \n\
+        - \"critical\": IMMEDIATE HEALTH/SAFETY EMERGENCY. Use ONLY if you observe: \n\
+            * Breathing difficulties: labored breathing, panting with open mouth while resting, choking sounds, wheezing \n\
+            * Injury indicators: limping severely, visible bleeding, favoring limb, visible wounds \n\
+            * Severe distress: collapse, lying unresponsive, seizure-like movements, trembling/shaking violently \n\
+            * Safety hazards: trapped/stuck in dangerous position, attempted ingestion of foreign object \n\
+        \n\
+        For CRITICAL severity: \n\
+        - Populate \"critical_indicators\" with 2-4 specific observations (e.g., \"Labored breathing with open mouth\", \"Unable to stand after multiple attempts\") \n\
+        - Populate \"recommended_actions\" with 2-4 immediate steps owner should take (e.g., \"Check if airways are clear\", \"Contact veterinarian immediately\", \"Monitor breathing rate\") \n\
+        \n\
+        For non-critical unusual behavior: \n\
+        - You MUST classify the activity as one of: 'Pacing', 'Barking', 'Whining', 'Restlessness', 'Attention-seeking' if applicable \n\
+        - Set \"is_unusual\" to true \n\
+        - Leave \"critical_indicators\" and \"recommended_actions\" as empty arrays \n\
+        \n\
+        BE CONSERVATIVE with \"critical\" classification. Only use it for genuine medical emergencies, not for behavioral issues.";
 
         let body = json!({
             "contents": [{
@@ -238,5 +257,43 @@ impl GeminiClient {
             .as_str()
             .map(|s| s.to_string())
             .ok_or("URI not found in file info".to_string())
+    }
+    
+    pub async fn generate_text(&self, prompt: &str) -> Result<String, String> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            self.model, self.api_key
+        );
+
+        let body = json!({
+            "contents": [{
+                "parts": [
+                    { "text": prompt }
+                ]
+            }]
+        });
+
+        let res = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Generate Request Failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(format!("Generate Failed: {}", text));
+        }
+
+        let json: Value = res.json().await.map_err(|e| e.to_string())?;
+        
+        // Extract text
+        let text = json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or("No text in Gemini response")?
+            .to_string();
+
+        Ok(text)
     }
 }

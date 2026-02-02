@@ -46,7 +46,7 @@ async fn main() {
     // Use app logic directly here
     let app = app(db, redis_client, gcs_client, prometheus_layer, metric_handle);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     tracing::info!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -75,13 +75,16 @@ fn app(
                 .patch(api::user::update_user)
                 .delete(api::user::delete_user),
         )
-        .route("/pets", post(api::pet::create_pet))
+        .route("/pets", get(api::pet::list_user_pets).post(api::pet::create_pet))
         .route(
             "/pets/:id",
             get(api::pet::get_pet)
                 .patch(api::pet::update_pet)
                 .delete(api::pet::delete_pet),
         )
+        .route("/videos", get(api::video::list_user_videos))
+        .route("/pets/:id/videos", get(api::video::list_pet_videos))
+        .route("/videos/:id/stream", get(api::video::serve_video))
         .route(
             "/pets/:id/upload_video",
             post(api::daily_digest::upload_video),
@@ -90,12 +93,27 @@ fn app(
             "/internal/generate_daily_digest",
             post(api::daily_digest::generate_daily_digest),
         )
+        // Alert routes - protected
+        .route("/alerts", get(api::critical_alerts::list_user_alerts))
+        .route("/alerts/:id", get(api::critical_alerts::get_alert))
+        .route("/pets/:id/alerts", get(api::critical_alerts::list_pet_alerts))
+        .route("/alerts/:id/acknowledge", post(api::critical_alerts::acknowledge_alert))
+        .route("/alerts/:id/resolve", post(api::critical_alerts::resolve_alert))
+        // Emergency Contacts routes - protected
+        .route("/emergency-contacts", get(api::emergency_contacts::list_emergency_contacts).post(api::emergency_contacts::create_emergency_contact))
+        .route("/emergency-contacts/:id", axum::routing::patch(api::emergency_contacts::update_emergency_contact).delete(api::emergency_contacts::delete_emergency_contact))
+        // Quick Actions routes - protected
+        .route("/alerts/:alert_id/quick-actions", post(api::quick_actions::create_quick_action).get(api::quick_actions::list_alert_quick_actions))
+        // Daily digest routes - protected
+        .route("/pets/:id/digests", get(api::daily_digest::list_pet_digests))
         .route_layer(axum::middleware::from_fn(api::middleware::auth_middleware));
 
     Router::new()
         .route("/health", get(health_check))
         .merge(auth_routes)
         .merge(protected_routes)
+        // Critical Alert Routes (public for Grafana dashboard)
+        .route("/api/alerts/critical", get(api::critical_alerts::get_pending_critical_alerts))
         .layer(Extension(db))
         .layer(Extension(redis_client))
         .layer(Extension(gcs_client))
@@ -169,7 +187,22 @@ fn app(
                     tracing::info!(
                         "request completed"
                     );
-                })
+                }))
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(
+                    "http://localhost:3003"
+                        .parse::<axum::http::HeaderValue>()
+                        .unwrap()
+                )
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::DELETE,
+                ])
+                .allow_headers([axum::http::header::CONTENT_TYPE])
+                .allow_credentials(true)
         )
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024))
