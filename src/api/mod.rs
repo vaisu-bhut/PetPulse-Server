@@ -1,5 +1,10 @@
 pub mod auth;
+pub mod critical_alerts;
 pub mod daily_digest;
+pub mod emergency_contacts;
 pub mod middleware;
 pub mod pet;
+pub mod quick_actions;
 pub mod user;
+pub mod video;
+pub mod webhook;

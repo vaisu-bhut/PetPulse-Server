@@ -16,6 +16,27 @@ pub struct CreatePetRequest {
     bio: String,
 }
 
+pub async fn list_user_pets(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(user_id): Extension<i32>,
+) -> Response {
+    use sea_orm::ColumnTrait;
+    use sea_orm::QueryFilter;
+
+    match pet::Entity::find()
+        .filter(pet::Column::UserId.eq(user_id))
+        .all(&db)
+        .await
+    {
+        Ok(pets) => (StatusCode::OK, Json(pets)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn create_pet(
     Extension(db): Extension<DatabaseConnection>,
     Extension(user_id): Extension<i32>,
@@ -35,7 +56,18 @@ pub async fn create_pet(
     };
 
     match new_pet.insert(&db).await {
-        Ok(pet) => (StatusCode::CREATED, Json(pet)).into_response(),
+        Ok(pet) => {
+            tracing::info!(pet_id = pet.id, user_id = pet.user_id, "New pet created");
+            metrics::counter!("petpulse_pets_created_total").increment(1);
+            metrics::gauge!("petpulse_pets_total").increment(1.0);
+
+            // Increment per-user count
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                crate::metrics::increment_user_pets(&db_clone, pet.user_id).await;
+            });
+            (StatusCode::CREATED, Json(pet)).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": e.to_string()})),

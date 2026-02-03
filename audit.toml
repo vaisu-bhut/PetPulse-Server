@@ -1,5 +1,5 @@
 [advisories]
 ignore = [
-    "RUSTSEC-2023-0071", # Marvin Attack (RSA) - Unused dependency (we use Postgres, coming from sqlx-mysql)
-    "RUSTSEC-2025-0134", # rustls-pemfile unmaintained - Transitive dependency, warning only
+    "RUSTSEC-2023-0071", # RSA timing sidechannels - no fix available, dependency of sqlx
+    "RUSTSEC-2025-0134", # rustls-pemfile unmaintained - transitive dependency of tonic/reqwest
 ]

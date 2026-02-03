@@ -34,6 +34,25 @@ impl GeminiClient {
         self.generate_content(&file_uri).await
     }
 
+    pub async fn analyze_video_with_usage(
+        &self,
+        file_path: &str,
+    ) -> Result<(Value, Option<Value>), String> {
+        // 1. Upload File
+        let file_uri = self.upload_file(file_path).await?;
+
+        // 2. Wait for processing (Video processing takes time)
+        // Gemini File API requires waiting for state=ACTIVE
+        self.wait_for_file_active(&file_uri).await?;
+
+        // 3. Generate Content
+        self.generate_content_with_usage(&file_uri).await
+    }
+    async fn generate_content(&self, file_name: &str) -> Result<Value, String> {
+        let (val, _) = self.generate_content_with_usage(file_name).await?;
+        Ok(val)
+    }
+
     async fn upload_file(&self, file_path: &str) -> Result<String, String> {
         let path = Path::new(file_path);
         let file_name = path.file_name().unwrap().to_str().unwrap();
@@ -122,7 +141,10 @@ impl GeminiClient {
         Err("Timeout waiting for video processing".to_string())
     }
 
-    async fn generate_content(&self, file_name: &str) -> Result<Value, String> {
+    async fn generate_content_with_usage(
+        &self,
+        file_name: &str,
+    ) -> Result<(Value, Option<Value>), String> {
         // Construct the model URL
         // User asked for "Gemini 3.0 Pro".
         // Note: As of now, only 1.5 is standard, but I'll plug in the env var `GEMINI_MODEL`.
@@ -131,24 +153,48 @@ impl GeminiClient {
             self.model, self.api_key
         );
 
-        let prompt = "Analyze this video of a pet. precise behavior analysis. \n\
-        Return a JSON object (without markdown code blocks) with the following structure: \n\
+        let prompt = "Analyze this video of a pet with focus on both behavioral patterns AND critical health/safety indicators. \n\
+        Return a valid JSON object (without markdown code blocks) with the following structure. USE DOUBLE QUOTES for keys and strings: \n\
         { \n\
-            'activities': [ \n\
+            \"activities\": [ \n\
                 { \n\
-                    'activity': 'string (Activity name e.g., Walking, Sleeping)', \n\
-                    'mood': 'string (Mood e.g., Energetic, Relaxed)', \n\
-                    'description': 'string (Detailed description of this specific segment)', \n\
-                    'starttime': 'string (HH:MM:SS)', \n\
-                    'endtime': 'string (HH:MM:SS)', \n\
-                    'duration': 'string (e.g. 5s)' \n\
+                    \"activity\": \"string (Activity name e.g., Walking, Sleeping)\", \n\
+                    \"mood\": \"string (Mood e.g., Energetic, Relaxed)\", \n\
+                    \"description\": \"string (Detailed description of this specific segment)\", \n\
+                    \"starttime\": \"string (HH:MM:SS)\", \n\
+                    \"endtime\": \"string (HH:MM:SS)\", \n\
+                    \"duration\": \"string (e.g. 5s)\" \n\
                 } \n\
             ], \n\
-            'is_unusual': boolean, \n\
-            'summary_mood': 'string (Overall mood)', \n\
-            'summary_description': 'string (Overall description)' \n\
+            \"is_unusual\": boolean, \n\
+            \"severity_level\": \"string (one of: info, low, medium, high, critical)\", \n\
+            \"critical_indicators\": [\"string (specific observations that indicate critical condition, empty if none)\"], \n\
+            \"recommended_actions\": [\"string (specific actionable steps for owner, empty if none)\"], \n\
+            \"summary_mood\": \"string (Overall mood)\", \n\
+            \"summary_description\": \"string (Overall description)\" \n\
         } \n\
-        Identify if there is any unusual or concerning behavior (e.g., limping, aggression, extreme lethargy) and set 'is_unusual' to true.";
+        \n\
+        SEVERITY CLASSIFICATION GUIDELINES: \n\
+        - \"info\": Normal, healthy behavior. No concerns. \n\
+        - \"low\": Minor unusual behavior (first occurrence of pacing, barking, whining). \n\
+        - \"medium\": Concerning patterns (agitation, restlessness, repeated unusual behavior). \n\
+        - \"high\": Urgent behavioral distress (extreme pacing, excessive vocalization, door scratching). \n\
+        - \"critical\": IMMEDIATE HEALTH/SAFETY EMERGENCY. Use ONLY if you observe: \n\
+            * Breathing difficulties: labored breathing, panting with open mouth while resting, choking sounds, wheezing \n\
+            * Injury indicators: limping severely, visible bleeding, favoring limb, visible wounds \n\
+            * Severe distress: collapse, lying unresponsive, seizure-like movements, trembling/shaking violently \n\
+            * Safety hazards: trapped/stuck in dangerous position, attempted ingestion of foreign object \n\
+        \n\
+        For CRITICAL severity: \n\
+        - Populate \"critical_indicators\" with 2-4 specific observations (e.g., \"Labored breathing with open mouth\", \"Unable to stand after multiple attempts\") \n\
+        - Populate \"recommended_actions\" with 2-4 immediate steps owner should take (e.g., \"Check if airways are clear\", \"Contact veterinarian immediately\", \"Monitor breathing rate\") \n\
+        \n\
+        For non-critical unusual behavior: \n\
+        - You MUST classify the activity as one of: 'Pacing', 'Barking', 'Whining', 'Restlessness', 'Attention-seeking' if applicable \n\
+        - Set \"is_unusual\" to true \n\
+        - Leave \"critical_indicators\" and \"recommended_actions\" as empty arrays \n\
+        \n\
+        BE CONSERVATIVE with \"critical\" classification. Only use it for genuine medical emergencies, not for behavioral issues.";
 
         let body = json!({
             "contents": [{
@@ -177,6 +223,9 @@ impl GeminiClient {
 
         let json: Value = res.json().await.map_err(|e| e.to_string())?;
 
+        // Extract usage metadata
+        let usage = json.get("usageMetadata").cloned();
+
         // Extract text from: candidates[0].content.parts[0].text
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
@@ -192,7 +241,7 @@ impl GeminiClient {
         let parsed: Value = serde_json::from_str(clean_text)
             .map_err(|e| format!("Failed to parse Gemini JSON: {} - Text: {}", e, clean_text))?;
 
-        Ok(parsed)
+        Ok((parsed, usage))
     }
 
     // Helper to get URI because upload returns it but I returned name for checking status.
@@ -212,5 +261,43 @@ impl GeminiClient {
             .as_str()
             .map(|s| s.to_string())
             .ok_or("URI not found in file info".to_string())
+    }
+
+    pub async fn generate_text(&self, prompt: &str) -> Result<String, String> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            self.model, self.api_key
+        );
+
+        let body = json!({
+            "contents": [{
+                "parts": [
+                    { "text": prompt }
+                ]
+            }]
+        });
+
+        let res = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Generate Request Failed: {}", e))?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(format!("Generate Failed: {}", text));
+        }
+
+        let json: Value = res.json().await.map_err(|e| e.to_string())?;
+
+        // Extract text
+        let text = json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or("No text in Gemini response")?
+            .to_string();
+
+        Ok(text)
     }
 }

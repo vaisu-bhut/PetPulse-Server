@@ -11,6 +11,7 @@ use axum::{
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::json;
 use tower_cookies::{Cookie, Cookies};
+use tracing::field::display;
 
 #[derive(serde::Deserialize)]
 pub struct RegisterRequest {
@@ -48,16 +49,51 @@ pub async fn register(
     };
 
     match new_user.insert(&db).await {
-        Ok(user) => (
-            StatusCode::CREATED,
-            Json(json!({"id": user.id, "email": user.email, "name": user.name})),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(user) => {
+            tracing::Span::current()
+                .record("table", "users")
+                .record("action", "register_user")
+                .record("user_id", user.id)
+                .record("user_email", &user.email)
+                .record("business_event", "User registered successfully")
+                .record("error", tracing::field::Empty);
+
+            metrics::counter!("petpulse_users_registered_total").increment(1);
+            metrics::gauge!("petpulse_users_total").increment(1.0);
+
+            (
+                StatusCode::CREATED,
+                Json(json!({"id": user.id, "email": user.email, "name": user.name})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            // Check for duplicate key error (Postgres code 23505)
+            let error_msg = e.to_string();
+            if error_msg.contains("duplicate key value violates unique constraint") {
+                tracing::Span::current()
+                    .record("table", "users")
+                    .record("action", "register_user_failed")
+                    .record("error", "duplicate_email");
+
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({"error": "Email already exists"})),
+                )
+                    .into_response();
+            }
+
+            tracing::Span::current()
+                .record("table", "users")
+                .record("action", "register_user_error")
+                .record("error", display(&e));
+
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -73,7 +109,7 @@ pub async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Response {
     let user = match user::Entity::find()
-        .filter(user::Column::Email.eq(payload.email))
+        .filter(user::Column::Email.eq(payload.email.clone()))
         .one(&db)
         .await
     {
@@ -115,8 +151,21 @@ pub async fn login(
         cookie.set_http_only(true);
         cookies.add(cookie);
 
+        tracing::Span::current()
+            .record("table", "users")
+            .record("action", "login_user")
+            .record("user_id", user.id)
+            .record("user_email", &user.email)
+            .record("business_event", "User logged in successfully")
+            .record("error", tracing::field::Empty);
+
         (StatusCode::OK, Json(json!({"message": "Login successful"}))).into_response()
     } else {
+        tracing::Span::current()
+            .record("table", "users")
+            .record("action", "login_user_failed")
+            .record("error", "invalid_credentials");
+
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "Invalid email or password"})),

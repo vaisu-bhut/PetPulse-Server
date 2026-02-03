@@ -69,6 +69,13 @@ jobs:
           BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/$REPO/petpulse-worker"
           echo "TAGS=${BASE_IMAGE}:latest" >> $GITHUB_OUTPUT
 
+      - name: Extract Metadata (Agent)
+        id: meta-agent
+        run: |
+          REPO="${{ steps.env-vars.outputs.REPO_NAME }}"
+          BASE_IMAGE="${{ vars.REGION }}-docker.pkg.dev/${{ vars.PROJECT_ID }}/$REPO/petpulse-agent"
+          echo "TAGS=${BASE_IMAGE}:latest" >> $GITHUB_OUTPUT
+
       - name: Build and Push Server
         uses: docker/build-push-action@v5
         with:
@@ -84,3 +91,11 @@ jobs:
           file: Dockerfile.worker
           push: true
           tags: ${{ steps.meta-worker.outputs.TAGS }}
+
+      - name: Build and Push Agent
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.agent
+          push: true
+          tags: ${{ steps.meta-agent.outputs.TAGS }}
