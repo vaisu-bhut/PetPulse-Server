@@ -57,7 +57,7 @@ pub async fn register(
                 .record("user_email", &user.email)
                 .record("business_event", "User registered successfully")
                 .record("error", tracing::field::Empty);
-            
+
             metrics::counter!("petpulse_users_registered_total").increment(1);
             metrics::gauge!("petpulse_users_total").increment(1.0);
 
@@ -66,12 +66,12 @@ pub async fn register(
                 Json(json!({"id": user.id, "email": user.email, "name": user.name})),
             )
                 .into_response()
-        },
+        }
         Err(e) => {
             // Check for duplicate key error (Postgres code 23505)
             let error_msg = e.to_string();
             if error_msg.contains("duplicate key value violates unique constraint") {
-                 tracing::Span::current()
+                tracing::Span::current()
                     .record("table", "users")
                     .record("action", "register_user_failed")
                     .record("error", "duplicate_email");
@@ -79,7 +79,8 @@ pub async fn register(
                 return (
                     StatusCode::CONFLICT,
                     Json(json!({"error": "Email already exists"})),
-                ).into_response();
+                )
+                    .into_response();
             }
 
             tracing::Span::current()
@@ -92,7 +93,7 @@ pub async fn register(
                 Json(json!({"error": e.to_string()})),
             )
                 .into_response()
-        },
+        }
     }
 }
 

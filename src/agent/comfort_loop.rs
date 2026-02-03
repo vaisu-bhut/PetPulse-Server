@@ -1,9 +1,11 @@
-use serde::{Deserialize, Serialize};
-use tracing::{info, error};
-use std::collections::HashMap;
-use sea_orm::{DatabaseConnection, EntityTrait, Set, ColumnTrait, QueryFilter, QueryOrder, PaginatorTrait};
-use uuid::Uuid;
 use crate::entities::alerts;
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tracing::{error, info};
+use uuid::Uuid;
 
 // Core Alert Structures
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -26,7 +28,7 @@ pub struct AlertPayload {
     #[serde(rename = "evalMatches")]
     pub eval_matches: Option<Vec<EvalMatch>>,
     // Phase 3 & 4: Critical Alert Fields
-    pub severity_level: Option<String>, 
+    pub severity_level: Option<String>,
     pub critical_indicators: Option<Vec<String>>,
     pub recommended_actions: Option<Vec<String>>,
 }
@@ -85,8 +87,8 @@ pub struct ComfortLoop {
 
 impl ComfortLoop {
     pub async fn new(db: DatabaseConnection) -> Self {
-        Self { 
-            db, 
+        Self {
+            db,
             notifier: TwilioNotifier::new().await,
             gemini: crate::gemini::GeminiClient::new(),
         }
@@ -94,20 +96,29 @@ impl ComfortLoop {
 
     pub async fn process_alert(&self, payload: AlertPayload) {
         info!("Processing alert: {:?}", payload);
-        
+
         let alert_uuid = Uuid::new_v4();
-        
+
         // 1. Persist Initial Alert
         // Parse pet_id from string to i32 (as per schema)
         let db_pet_id = payload.pet_id.parse::<i32>().unwrap_or_else(|e| {
-            error!("Failed to parse pet_id '{}': {}. Using 1 as fallback.", payload.pet_id, e);
+            error!(
+                "Failed to parse pet_id '{}': {}. Using 1 as fallback.",
+                payload.pet_id, e
+            );
             1
         });
 
         // Extract detailed fields from payload or context
-        let severity_level = payload.severity_level.clone()
-            .or_else(|| payload.context.as_ref()
-                .and_then(|c| c.get("severity_level").and_then(|v| v.as_str().map(String::from))))
+        let severity_level = payload
+            .severity_level
+            .clone()
+            .or_else(|| {
+                payload.context.as_ref().and_then(|c| {
+                    c.get("severity_level")
+                        .and_then(|v| v.as_str().map(String::from))
+                })
+            })
             .unwrap_or_else(|| "low".to_string());
 
         // 2a. Check recent alert count for escalation (Last 1 hour)
@@ -125,10 +136,10 @@ impl ComfortLoop {
                 0 // Default to 0 so current alert makes it 1
             }
         };
-        
+
         // Include current alert in count for logic
         let current_alert_count = recent_alert_count + 1;
-        
+
         info!(
             "Alert count for pet_id={}, type={} in last hour: {} (including current)",
             db_pet_id,
@@ -138,20 +149,29 @@ impl ComfortLoop {
 
         // 2b. Force Severity Escalation (5th+ alert = High)
         let final_severity = if current_alert_count >= 5 && severity_level != "critical" {
-            info!("Escalating alert {} to HIGH severity due to repetition (count: {})", alert_uuid, current_alert_count);
+            info!(
+                "Escalating alert {} to HIGH severity due to repetition (count: {})",
+                alert_uuid, current_alert_count
+            );
             "high".to_string()
         } else {
             severity_level
         };
 
         // 3. Persist Alert (now that we have final severity)
-        let critical_indicators = payload.critical_indicators.clone()
-            .or_else(|| payload.context.as_ref()
-                .and_then(|c| c.get("critical_indicators").and_then(|v| serde_json::from_value(v.clone()).ok())));
+        let critical_indicators = payload.critical_indicators.clone().or_else(|| {
+            payload.context.as_ref().and_then(|c| {
+                c.get("critical_indicators")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+            })
+        });
 
-        let recommended_actions = payload.recommended_actions.clone()
-            .or_else(|| payload.context.as_ref()
-                .and_then(|c| c.get("recommended_actions").and_then(|v| serde_json::from_value(v.clone()).ok())));
+        let recommended_actions = payload.recommended_actions.clone().or_else(|| {
+            payload.context.as_ref().and_then(|c| {
+                c.get("recommended_actions")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+            })
+        });
 
         let active_model = alerts::ActiveModel {
             id: Set(alert_uuid),
@@ -160,12 +180,16 @@ impl ComfortLoop {
             severity: Set(match final_severity.as_str() {
                 "critical" => "critical".to_string(),
                 "high" => "high".to_string(),
-                _ => payload.severity.clone()
+                _ => payload.severity.clone(),
             }),
             message: Set(payload.message.clone()),
             severity_level: Set(final_severity.clone()),
-            critical_indicators: Set(critical_indicators.clone().map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))),
-            recommended_actions: Set(recommended_actions.clone().map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))),
+            critical_indicators: Set(critical_indicators
+                .clone()
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))),
+            recommended_actions: Set(recommended_actions
+                .clone()
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))),
             payload: Set(serde_json::to_value(&payload).unwrap_or_default()),
             created_at: Set(chrono::Utc::now().naive_utc()),
             ..Default::default()
@@ -179,8 +203,10 @@ impl ComfortLoop {
         info!("Alert {} persisted to database", alert_uuid);
 
         // 4. Decide Intervention (escalating based on count)
-        let intervention = self.decide_intervention(&payload, current_alert_count, &final_severity).await;
-        
+        let intervention = self
+            .decide_intervention(&payload, current_alert_count, &final_severity)
+            .await;
+
         // 4. Execute Action
         self.execute_action(&intervention, &payload).await;
 
@@ -191,33 +217,40 @@ impl ComfortLoop {
             intervention_time: Set(Some(chrono::Utc::now().naive_utc())),
             ..Default::default()
         };
-        
+
         if let Err(e) = alerts::Entity::update(update_model).exec(&self.db).await {
             error!("Failed to update alert intervention: {}", e);
         }
-        
+
         // Phase 4: Handle Critical Alerts specifically
         if final_severity == "critical" {
             crate::metrics::increment_critical_alerts(db_pet_id);
             // Trigger Critical Notification Branch
-            self.handle_critical_alert(&payload, alert_uuid, &critical_indicators, &recommended_actions).await;
-            
+            self.handle_critical_alert(
+                &payload,
+                alert_uuid,
+                &critical_indicators,
+                &recommended_actions,
+            )
+            .await;
+
             // Also generate Quick Actions for Critical
-             self.generate_quick_actions(alert_uuid, db_pet_id, "critical").await;
-             
+            self.generate_quick_actions(alert_uuid, db_pet_id, "critical")
+                .await;
+
             return; // Skip normal monitoring/resolution loop for critical alerts
         }
-        
+
         // Handle High Severity (Persistent) - Generate Quick Actions
         if final_severity == "high" {
-             self.generate_quick_actions(alert_uuid, db_pet_id, "high").await;
+            self.generate_quick_actions(alert_uuid, db_pet_id, "high")
+                .await;
         }
-
 
         // 6. Continuous Monitoring - wait and check for resolution
         info!("Monitoring for resolution... Checking for new normal videos.");
         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-        
+
         // Check if new videos have been analyzed as normal (is_unusual = false)
         // We check if the latest video for this pet is NOT unusual
         use crate::entities::pet_video;
@@ -229,7 +262,7 @@ impl ComfortLoop {
             .await
             .ok()
             .flatten();
-        
+
         let outcome = if let Some(video) = latest_video {
             if !video.is_unusual {
                 info!("Latest video shows normal behavior - alert resolved");
@@ -241,7 +274,7 @@ impl ComfortLoop {
         } else {
             "No new video data available for resolution check."
         };
-        
+
         info!("{}", outcome);
 
         // 7. Update DB with Outcome
@@ -256,17 +289,17 @@ impl ComfortLoop {
     }
 
     async fn handle_critical_alert(
-        &self, 
-        payload: &AlertPayload, 
+        &self,
+        payload: &AlertPayload,
         alert_uuid: Uuid,
         critical_indicators: &Option<Vec<String>>,
-        recommended_actions: &Option<Vec<String>>
+        recommended_actions: &Option<Vec<String>>,
     ) {
         info!("🚨 HANDLING CRITICAL ALERT: {}", alert_uuid);
-        
+
         let owner_email = std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string());
         let owner_phone = std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
-        
+
         let video_link = if let Some(vid) = &payload.video_id {
             // In a real scenario, generate a signed URL here.
             // For now, use a direct link placeholder
@@ -276,16 +309,21 @@ impl ComfortLoop {
         };
 
         // Send Notifications
-        self.notifier.notify_critical_alert(
-            &owner_email,
-            &owner_phone,
-            "Your Pet",
-            "CRITICAL",
-            payload.message.as_deref().unwrap_or("Critical health indicator detected"),
-            critical_indicators.as_deref().unwrap_or(&[]),
-            recommended_actions.as_deref().unwrap_or(&[]),
-            &video_link
-        ).await;
+        self.notifier
+            .notify_critical_alert(
+                &owner_email,
+                &owner_phone,
+                "Your Pet",
+                "CRITICAL",
+                payload
+                    .message
+                    .as_deref()
+                    .unwrap_or("Critical health indicator detected"),
+                critical_indicators.as_deref().unwrap_or(&[]),
+                recommended_actions.as_deref().unwrap_or(&[]),
+                &video_link,
+            )
+            .await;
 
         // Update Database Tracking
         let update_model = alerts::ActiveModel {
@@ -297,73 +335,96 @@ impl ComfortLoop {
             outcome: Set(Some("Waiting for user acknowledgement".to_string())),
             ..Default::default()
         };
-        
+
         if let Err(e) = alerts::Entity::update(update_model).exec(&self.db).await {
             error!("Failed to update alert notification status: {}", e);
         }
     }
 
-    async fn decide_intervention(&self, payload: &AlertPayload, alert_count: u64, severity_level: &str) -> Intervention {
+    async fn decide_intervention(
+        &self,
+        payload: &AlertPayload,
+        alert_count: u64,
+        severity_level: &str,
+    ) -> Intervention {
         // If critical, immediately escalate to Notification (handled in main loop branching, but good for safety)
         if severity_level == "critical" {
             return Intervention::NotifyUser(NotificationLevel::Critical);
         }
-        
+
         // Standard Escalation Logic
-        info!("Deciding intervention for alert_type={:?}, alert_count={}", payload.alert_type, alert_count);
+        info!(
+            "Deciding intervention for alert_type={:?}, alert_count={}",
+            payload.alert_type, alert_count
+        );
         match alert_count {
-            0..=2 => match payload.alert_type { // 1st and 2nd alert
-                AlertType::Pacing | AlertType::Restlessness => Intervention::AdjustEnvironment(EnvironmentAction::DimLights), 
-                AlertType::Vocalization | AlertType::AttentionSeeking => Intervention::PlayCalmingMusic,
+            0..=2 => match payload.alert_type {
+                // 1st and 2nd alert
+                AlertType::Pacing | AlertType::Restlessness => {
+                    Intervention::AdjustEnvironment(EnvironmentAction::DimLights)
+                }
+                AlertType::Vocalization | AlertType::AttentionSeeking => {
+                    Intervention::PlayCalmingMusic
+                }
                 AlertType::UnusualBehavior => Intervention::PlayCalmingMusic,
                 _ => Intervention::LogOnly,
             },
-            3 => match payload.alert_type { // 3rd alert
+            3 => match payload.alert_type {
+                // 3rd alert
                 AlertType::Pacing | AlertType::Restlessness => Intervention::PlayOwnerVoice,
                 AlertType::Vocalization => Intervention::DispenseTreat,
                 _ => Intervention::PlayOwnerVoice,
             },
             4 => {
-                 // 4th alert - Notify User AND Last Autonomous Action
-                 info!("Alert escalation: 4th alert - Notifying user and taking final autonomous action");
-                 // We return a composite or just notify for now as per "user preference" request implies notification is key.
-                 // But user asked for "autonomous agent one last time".
-                 // Let's assume we do PlayOwnerVoice + Notify. 
-                 // Limitation: Current Intervention enum is single-choice. 
-                 // Workaround: We will execute the autonomous action here manually, and return NotifyUser.
-                 let autonomous_backup = Intervention::PlayOwnerVoice;
-                 self.execute_action(&autonomous_backup, payload).await;
-                 
-                 Intervention::NotifyUser(NotificationLevel::Standard)
+                // 4th alert - Notify User AND Last Autonomous Action
+                info!("Alert escalation: 4th alert - Notifying user and taking final autonomous action");
+                // We return a composite or just notify for now as per "user preference" request implies notification is key.
+                // But user asked for "autonomous agent one last time".
+                // Let's assume we do PlayOwnerVoice + Notify.
+                // Limitation: Current Intervention enum is single-choice.
+                // Workaround: We will execute the autonomous action here manually, and return NotifyUser.
+                let autonomous_backup = Intervention::PlayOwnerVoice;
+                self.execute_action(&autonomous_backup, payload).await;
+
+                Intervention::NotifyUser(NotificationLevel::Standard)
             }
             _ => {
-                 // 5+ alerts - High Severity (Controlled by final_severity logic)
-                 // Just notify, but strict.
-                 info!("Alert escalation: 5+ alerts (High Severity) - Notifying user");
-                 Intervention::NotifyUser(NotificationLevel::Standard)
+                // 5+ alerts - High Severity (Controlled by final_severity logic)
+                // Just notify, but strict.
+                info!("Alert escalation: 5+ alerts (High Severity) - Notifying user");
+                Intervention::NotifyUser(NotificationLevel::Standard)
             }
         }
     }
-    
+
     async fn generate_quick_actions(&self, alert_id: Uuid, pet_id: i32, severity: &str) {
         use crate::entities::{emergency_contact, quick_action};
-        
+
         // 1. Get Pet and User info
-         let pet = match crate::entities::pet::Entity::find_by_id(pet_id).one(&self.db).await {
+        let pet = match crate::entities::pet::Entity::find_by_id(pet_id)
+            .one(&self.db)
+            .await
+        {
             Ok(Some(p)) => p,
-            _ => { error!("Pet not found for quick actions"); return; }
+            _ => {
+                error!("Pet not found for quick actions");
+                return;
+            }
         };
-        
+
         // 2. Get Emergency Contacts
         let contacts = match emergency_contact::Entity::find()
             .filter(emergency_contact::Column::UserId.eq(pet.user_id))
             .all(&self.db)
-            .await 
+            .await
         {
-             Ok(c) => c,
-             Err(e) => { error!("Failed to fetch contacts: {}", e); return; }
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to fetch contacts: {}", e);
+                return;
+            }
         };
-        
+
         if contacts.is_empty() {
             info!("No emergency contacts found for quick actions.");
             return;
@@ -400,7 +461,10 @@ impl ComfortLoop {
                 Err(e) => {
                     error!("Gemini generation failed: {}", e);
                     // Fallback
-                    format!(r#"{{"sms_text": "PetPulse Alert: {} needs attention.", "email_body": "Please check on {}."}}"#, pet_name, pet_name)
+                    format!(
+                        r#"{{"sms_text": "PetPulse Alert: {} needs attention.", "email_body": "Please check on {}."}}"#,
+                        pet_name, pet_name
+                    )
                 }
             };
 
@@ -416,12 +480,18 @@ impl ComfortLoop {
                 created_at: Set(chrono::Utc::now().naive_utc()),
                 ..Default::default()
             };
-            
-            if let Err(e) = quick_action::Entity::insert(active_action).exec(&self.db).await {
+
+            if let Err(e) = quick_action::Entity::insert(active_action)
+                .exec(&self.db)
+                .await
+            {
                 error!("Failed to generate quick action: {}", e);
             }
         }
-        info!("Generated quick actions for alert {} (Severity: {})", alert_id, severity);
+        info!(
+            "Generated quick actions for alert {} (Severity: {})",
+            alert_id, severity
+        );
     }
 
     async fn execute_action(&self, action: &Intervention, payload: &AlertPayload) {
@@ -431,33 +501,41 @@ impl ComfortLoop {
             Intervention::PlayCalmingMusic => info!("🎶 Action: Playing calming music playlist"),
             Intervention::PlayOwnerVoice => info!("🗣️ Action: Playing owner voice note"),
             Intervention::DispenseTreat => info!("🍬 Action: Dispensing treat"),
-            Intervention::AdjustEnvironment(env_action) => info!("💡 Action: Adjusting environment: {:?}", env_action),
+            Intervention::AdjustEnvironment(env_action) => {
+                info!("💡 Action: Adjusting environment: {:?}", env_action)
+            }
             Intervention::NotifyUser(level) => {
                 info!("📱 Action: Notifying user (Level: {:?})", level);
-                
-                let owner_email = std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string());
-                let owner_phone = std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
-                
+
+                let owner_email =
+                    std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string());
+                let owner_phone =
+                    std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
+
                 let severity_str = match level {
                     NotificationLevel::Critical => "CRITICAL",
                     NotificationLevel::Standard => "HIGH",
                 };
-                
-                let video_link = payload.video_id.as_ref()
+
+                let video_link = payload
+                    .video_id
+                    .as_ref()
                     .map(|v| format!("https://petpulse.dashboard/videos/{}", v))
                     .unwrap_or_else(|| "https://petpulse.dashboard".to_string());
 
-                self.notifier.notify_critical_alert(
-                    &owner_email,
-                    &owner_phone,
-                    "Your Pet",
-                    severity_str,
-                    payload.message.as_deref().unwrap_or("Alert triggered"),
-                    &[],
-                    &[],
-                    &video_link
-                ).await;
-            },
+                self.notifier
+                    .notify_critical_alert(
+                        &owner_email,
+                        &owner_phone,
+                        "Your Pet",
+                        severity_str,
+                        payload.message.as_deref().unwrap_or("Alert triggered"),
+                        &[],
+                        &[],
+                        &video_link,
+                    )
+                    .await;
+            }
             Intervention::LogOnly => info!("📝 Action: Logging alert only"),
         }
     }

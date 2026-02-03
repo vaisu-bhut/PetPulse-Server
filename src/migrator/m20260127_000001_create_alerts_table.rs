@@ -11,12 +11,7 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Alerts::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Alerts::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
+                    .col(ColumnDef::new(Alerts::Id).uuid().not_null().primary_key())
                     .col(ColumnDef::new(Alerts::PetId).integer().not_null()) // Matches Pets::Id type
                     .col(ColumnDef::new(Alerts::AlertType).string().not_null())
                     .col(ColumnDef::new(Alerts::Severity).string().not_null())

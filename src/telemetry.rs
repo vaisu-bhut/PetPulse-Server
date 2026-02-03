@@ -11,7 +11,8 @@ pub fn init_telemetry(service_name: &str) {
     // EnvFilter
     // Suppress DB debug logs (sqlx, sea_orm) by setting them to warn. Default to info.
     let env_filter = tracing_subscriber::EnvFilter::new(
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "info,petpulse_server=info,sqlx=warn,sea_orm=warn".into()),
+        std::env::var("RUST_LOG")
+            .unwrap_or_else(|_| "info,petpulse_server=info,sqlx=warn,sea_orm=warn".into()),
     );
 
     // Registry

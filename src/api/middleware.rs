@@ -9,14 +9,14 @@ use serde_json::json;
 use tower_cookies::Cookies;
 
 use crate::entities::user;
-use sea_orm::{DatabaseConnection, EntityTrait};
 use axum::extract::Extension;
+use sea_orm::{DatabaseConnection, EntityTrait};
 
 pub async fn auth_middleware(
-    Extension(db): Extension<DatabaseConnection>, 
-    cookies: Cookies, 
-    mut request: Request, 
-    next: Next
+    Extension(db): Extension<DatabaseConnection>,
+    cookies: Cookies,
+    mut request: Request,
+    next: Next,
 ) -> Response {
     if let Some(cookie) = cookies.get("petpulse_user") {
         if let Ok(user_id) = cookie.value().parse::<i32>() {
@@ -27,7 +27,7 @@ pub async fn auth_middleware(
                 tracing::Span::current()
                     .record("user_id", user_id)
                     .record("user_email", &user.email);
-                
+
                 return next.run(request).await;
             }
         }

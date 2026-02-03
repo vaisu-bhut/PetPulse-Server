@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use uuid::Uuid;
 
-use crate::entities::{alerts, emergency_contact, pet, quick_action, prelude::*, EmergencyContact, QuickAction};
+use crate::entities::{
+    alerts, emergency_contact, pet, prelude::*, quick_action, EmergencyContact, QuickAction,
+};
 
 #[derive(Deserialize)]
 pub struct CreateQuickActionRequest {
@@ -45,24 +47,30 @@ pub async fn create_quick_action(
     // Verify alert belongs to user's pet
     let alert = match Alerts::find_by_id(alert_id).one(&db).await {
         Ok(Some(a)) => a,
-        Ok(None) => {
-            return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response()
-        }
+        Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response(),
         Err(e) => {
             error!("Failed to fetch alert: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
                 .into_response();
         }
     };
 
     // Get pet to verify ownership
     match Pet::find_by_id(alert.pet_id).one(&db).await {
-        Ok(Some(p)) if p.user_id == user_id => {},
-        Ok(Some(_)) => return (axum::http::StatusCode::FORBIDDEN, "Not your alert").into_response(),
+        Ok(Some(p)) if p.user_id == user_id => {}
+        Ok(Some(_)) => {
+            return (axum::http::StatusCode::FORBIDDEN, "Not your alert").into_response()
+        }
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Pet not found").into_response(),
         Err(e) => {
             error!("Failed to fetch pet: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
                 .into_response();
         }
     };
@@ -89,7 +97,10 @@ pub async fn create_quick_action(
         }
         Err(e) => {
             error!("Failed to fetch emergency contact: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
                 .into_response();
         }
     };
@@ -175,23 +186,29 @@ pub async fn list_alert_quick_actions(
     // Verify alert belongs to user's pet
     let alert = match Alerts::find_by_id(alert_id).one(&db).await {
         Ok(Some(a)) => a,
-        Ok(None) => {
-            return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response()
-        }
+        Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response(),
         Err(e) => {
             error!("Failed to fetch alert: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
                 .into_response();
         }
     };
 
     match Pet::find_by_id(alert.pet_id).one(&db).await {
-        Ok(Some(p)) if p.user_id == user_id => {},
-        Ok(Some(_)) => return (axum::http::StatusCode::FORBIDDEN, "Not your alert").into_response(),
+        Ok(Some(p)) if p.user_id == user_id => {}
+        Ok(Some(_)) => {
+            return (axum::http::StatusCode::FORBIDDEN, "Not your alert").into_response()
+        }
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Pet not found").into_response(),
         Err(e) => {
             error!("Failed to fetch pet: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error")
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
                 .into_response();
         }
     };

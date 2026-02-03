@@ -1,14 +1,17 @@
+use crate::entities::{alerts, pet, prelude::*};
 use axum::{
     extract::{Extension, Path, Query},
     response::IntoResponse,
     Json,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, QueryOrder, PaginatorTrait};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
-use crate::entities::{alerts, prelude::*, pet};
 
 #[derive(Deserialize)]
 pub struct PaginationParams {
@@ -19,8 +22,12 @@ pub struct PaginationParams {
     pub severity_level: Option<String>,
 }
 
-fn default_page() -> u64 { 1 }
-fn default_page_size() -> u64 { 10 }
+fn default_page() -> u64 {
+    1
+}
+fn default_page_size() -> u64 {
+    10
+}
 
 #[derive(Serialize)]
 pub struct AlertResponse {
@@ -72,24 +79,32 @@ pub async fn list_user_alerts(
         Ok(pets) => pets,
         Err(e) => {
             error!("Failed to fetch user pets: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch pets").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch pets",
+            )
+                .into_response();
         }
     };
 
     let pet_ids: Vec<i32> = user_pets.iter().map(|p| p.id).collect();
-    
+
     if pet_ids.is_empty() {
-        return (axum::http::StatusCode::OK, Json(AlertListResponse {
-            alerts: vec![],
-            total: 0,
-            page: params.page,
-            page_size: params.page_size,
-        })).into_response();
+        return (
+            axum::http::StatusCode::OK,
+            Json(AlertListResponse {
+                alerts: vec![],
+                total: 0,
+                page: params.page,
+                page_size: params.page_size,
+            }),
+        )
+            .into_response();
     }
 
     // Build query
     let mut query = Alerts::find().filter(alerts::Column::PetId.is_in(pet_ids.clone()));
-    
+
     if let Some(severity) = &params.severity_level {
         query = query.filter(alerts::Column::SeverityLevel.eq(severity));
     }
@@ -101,7 +116,11 @@ pub async fn list_user_alerts(
         Ok(count) => count,
         Err(e) => {
             error!("Failed to count alerts: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to count alerts").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to count alerts",
+            )
+                .into_response();
         }
     };
 
@@ -112,42 +131,54 @@ pub async fn list_user_alerts(
     match alerts_result {
         Ok(alerts) => {
             // Create a map of pet_id to pet_name for quick lookup
-            let pet_map: std::collections::HashMap<i32, String> = user_pets
+            let pet_map: std::collections::HashMap<i32, String> =
+                user_pets.into_iter().map(|p| (p.id, p.name)).collect();
+
+            let response: Vec<AlertResponse> = alerts
                 .into_iter()
-                .map(|p| (p.id, p.name))
+                .map(|alert| AlertResponse {
+                    id: alert.id,
+                    pet_id: alert.pet_id,
+                    pet_name: pet_map.get(&alert.pet_id).cloned(),
+                    alert_type: alert.alert_type,
+                    severity_level: alert.severity_level,
+                    message: alert.message,
+                    critical_indicators: alert.critical_indicators,
+                    recommended_actions: alert.recommended_actions,
+                    created_at: alert.created_at,
+                    outcome: alert.outcome,
+                    user_response: alert.user_response,
+                    user_acknowledged_at: alert.user_acknowledged_at,
+                    user_notified_at: alert.user_notified_at,
+                    notification_sent: alert.notification_sent,
+
+                    notification_channels: alert.notification_channels,
+                    intervention_action: alert.intervention_action,
+                    video_id: alert
+                        .payload
+                        .get("video_id")
+                        .and_then(|v| v.as_str().map(String::from)),
+                })
                 .collect();
 
-            let response: Vec<AlertResponse> = alerts.into_iter().map(|alert| AlertResponse {
-                id: alert.id,
-                pet_id: alert.pet_id,
-                pet_name: pet_map.get(&alert.pet_id).cloned(),
-                alert_type: alert.alert_type,
-                severity_level: alert.severity_level,
-                message: alert.message,
-                critical_indicators: alert.critical_indicators,
-                recommended_actions: alert.recommended_actions,
-                created_at: alert.created_at,
-                outcome: alert.outcome,
-                user_response: alert.user_response,
-                user_acknowledged_at: alert.user_acknowledged_at,
-                user_notified_at: alert.user_notified_at,
-                notification_sent: alert.notification_sent,
-
-                notification_channels: alert.notification_channels,
-                intervention_action: alert.intervention_action,
-                video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
-            }).collect();
-            
-            (axum::http::StatusCode::OK, Json(AlertListResponse {
-                alerts: response,
-                total,
-                page: params.page,
-                page_size: params.page_size,
-            })).into_response()
+            (
+                axum::http::StatusCode::OK,
+                Json(AlertListResponse {
+                    alerts: response,
+                    total,
+                    page: params.page,
+                    page_size: params.page_size,
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             error!("Failed to fetch alerts: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch alerts").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch alerts",
+            )
+                .into_response()
         }
     }
 }
@@ -166,13 +197,17 @@ pub async fn list_pet_alerts(
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Pet not found").into_response(),
         Err(e) => {
             error!("Failed to fetch pet: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
+                .into_response();
         }
     };
 
     // Build query
     let mut query = Alerts::find().filter(alerts::Column::PetId.eq(pet_id));
-    
+
     if let Some(severity) = &params.severity_level {
         query = query.filter(alerts::Column::SeverityLevel.eq(severity));
     }
@@ -184,7 +219,11 @@ pub async fn list_pet_alerts(
         Ok(count) => count,
         Err(e) => {
             error!("Failed to count alerts: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to count alerts").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to count alerts",
+            )
+                .into_response();
         }
     };
 
@@ -194,36 +233,50 @@ pub async fn list_pet_alerts(
 
     match alerts_result {
         Ok(alerts) => {
-            let response: Vec<AlertResponse> = alerts.into_iter().map(|alert| AlertResponse {
-                id: alert.id,
-                pet_id: alert.pet_id,
-                pet_name: Some(pet.name.clone()),
-                alert_type: alert.alert_type,
-                severity_level: alert.severity_level,
-                message: alert.message,
-                critical_indicators: alert.critical_indicators,
-                recommended_actions: alert.recommended_actions,
-                created_at: alert.created_at,
-                outcome: alert.outcome,
-                user_response: alert.user_response,
-                user_acknowledged_at: alert.user_acknowledged_at,
-                user_notified_at: alert.user_notified_at,
-                notification_sent: alert.notification_sent,
-                notification_channels: alert.notification_channels,
-                intervention_action: alert.intervention_action,
-                video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
-            }).collect();
-            
-            (axum::http::StatusCode::OK, Json(AlertListResponse {
-                alerts: response,
-                total,
-                page: params.page,
-                page_size: params.page_size,
-            })).into_response()
+            let response: Vec<AlertResponse> = alerts
+                .into_iter()
+                .map(|alert| AlertResponse {
+                    id: alert.id,
+                    pet_id: alert.pet_id,
+                    pet_name: Some(pet.name.clone()),
+                    alert_type: alert.alert_type,
+                    severity_level: alert.severity_level,
+                    message: alert.message,
+                    critical_indicators: alert.critical_indicators,
+                    recommended_actions: alert.recommended_actions,
+                    created_at: alert.created_at,
+                    outcome: alert.outcome,
+                    user_response: alert.user_response,
+                    user_acknowledged_at: alert.user_acknowledged_at,
+                    user_notified_at: alert.user_notified_at,
+                    notification_sent: alert.notification_sent,
+                    notification_channels: alert.notification_channels,
+                    intervention_action: alert.intervention_action,
+                    video_id: alert
+                        .payload
+                        .get("video_id")
+                        .and_then(|v| v.as_str().map(String::from)),
+                })
+                .collect();
+
+            (
+                axum::http::StatusCode::OK,
+                Json(AlertListResponse {
+                    alerts: response,
+                    total,
+                    page: params.page,
+                    page_size: params.page_size,
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             error!("Failed to fetch alerts: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch alerts").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch alerts",
+            )
+                .into_response()
         }
     }
 }
@@ -231,11 +284,11 @@ pub async fn list_pet_alerts(
 // GET /alerts/critical
 pub async fn get_pending_critical_alerts(
     Extension(db): Extension<DatabaseConnection>,
-) ->  impl IntoResponse {
+) -> impl IntoResponse {
     // Fetch critical alerts that are NOT resolved
     // Logic: outcome IS NOT "resolved" (case insensitive check ideal, but simplistic for now)
     // Or just all critical alerts sorted by recency
-    
+
     let alerts_result = Alerts::find()
         .filter(alerts::Column::SeverityLevel.eq("critical"))
         //.filter(alerts::Column::Outcome.ne("resolved")) // Simplification: fetch all for dashboard
@@ -245,32 +298,41 @@ pub async fn get_pending_critical_alerts(
 
     match alerts_result {
         Ok(alerts) => {
-            let response: Vec<AlertResponse> = alerts.into_iter().map(|alert| AlertResponse {
-                id: alert.id,
-                pet_id: alert.pet_id,
-                pet_name: None,
-                alert_type: alert.alert_type,
-                severity_level: alert.severity_level,
-                message: alert.message,
-                critical_indicators: alert.critical_indicators,
-                recommended_actions: alert.recommended_actions,
-                created_at: alert.created_at,
-                outcome: alert.outcome,
-                user_response: alert.user_response,
-                user_acknowledged_at: alert.user_acknowledged_at,
-                user_notified_at: alert.user_notified_at,
-                notification_sent: alert.notification_sent,
-                notification_channels: alert.notification_channels,
-                intervention_action: alert.intervention_action,
-                video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
-            }).collect();
+            let response: Vec<AlertResponse> = alerts
+                .into_iter()
+                .map(|alert| AlertResponse {
+                    id: alert.id,
+                    pet_id: alert.pet_id,
+                    pet_name: None,
+                    alert_type: alert.alert_type,
+                    severity_level: alert.severity_level,
+                    message: alert.message,
+                    critical_indicators: alert.critical_indicators,
+                    recommended_actions: alert.recommended_actions,
+                    created_at: alert.created_at,
+                    outcome: alert.outcome,
+                    user_response: alert.user_response,
+                    user_acknowledged_at: alert.user_acknowledged_at,
+                    user_notified_at: alert.user_notified_at,
+                    notification_sent: alert.notification_sent,
+                    notification_channels: alert.notification_channels,
+                    intervention_action: alert.intervention_action,
+                    video_id: alert
+                        .payload
+                        .get("video_id")
+                        .and_then(|v| v.as_str().map(String::from)),
+                })
+                .collect();
 
-            
             (axum::http::StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
             error!("Failed to fetch critical alerts: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch alerts").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch alerts",
+            )
+                .into_response()
         }
     }
 }
@@ -285,8 +347,12 @@ pub async fn acknowledge_alert(
         Ok(Some(a)) => a,
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response(),
         Err(e) => {
-             error!("Failed to fetch alert: {}", e);
-             return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+            error!("Failed to fetch alert: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
+                .into_response();
         }
     };
 
@@ -294,18 +360,28 @@ pub async fn acknowledge_alert(
     active_model.user_acknowledged_at = Set(Some(chrono::Utc::now().naive_utc()));
     active_model.user_response = Set(Some(payload.response));
     active_model.outcome = Set(Some("Acknowledged by User".to_string()));
-    
+
     // Calculate duration
     if let Ok(Some(alert_ro)) = alerts::Entity::find_by_id(alert_id).one(&db).await {
-         let duration = chrono::Utc::now().naive_utc().signed_duration_since(alert_ro.created_at);
-         crate::metrics::record_acknowledgment_time(duration.num_seconds() as f64);
+        let duration = chrono::Utc::now()
+            .naive_utc()
+            .signed_duration_since(alert_ro.created_at);
+        crate::metrics::record_acknowledgment_time(duration.num_seconds() as f64);
     }
 
     match active_model.update(&db).await {
-        Ok(_) => (axum::http::StatusCode::OK, Json(serde_json::json!({"status": "acknowledged"}))).into_response(),
+        Ok(_) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "acknowledged"})),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to acknowledge alert: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update alert").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update alert",
+            )
+                .into_response()
         }
     }
 }
@@ -319,8 +395,12 @@ pub async fn resolve_alert(
         Ok(Some(a)) => a,
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response(),
         Err(e) => {
-             error!("Failed to fetch alert: {}", e);
-             return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+            error!("Failed to fetch alert: {}", e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
+                .into_response();
         }
     };
 
@@ -328,10 +408,18 @@ pub async fn resolve_alert(
     active_model.outcome = Set(Some("Resolved".to_string())); // Standardized string
 
     match active_model.update(&db).await {
-        Ok(_) => (axum::http::StatusCode::OK, Json(serde_json::json!({"status": "resolved"}))).into_response(),
+        Ok(_) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "resolved"})),
+        )
+            .into_response(),
         Err(e) => {
-             error!("Failed to resolve alert: {}", e);
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to update alert").into_response()
+            error!("Failed to resolve alert: {}", e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update alert",
+            )
+                .into_response()
         }
     }
 }
@@ -346,7 +434,11 @@ pub async fn get_alert(
         Ok(None) => return (axum::http::StatusCode::NOT_FOUND, "Alert not found").into_response(),
         Err(e) => {
             error!("Failed to fetch alert: {}", e);
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            )
+                .into_response();
         }
     };
 
@@ -372,7 +464,10 @@ pub async fn get_alert(
         notification_sent: alert.notification_sent,
         notification_channels: alert.notification_channels,
         intervention_action: alert.intervention_action,
-        video_id: alert.payload.get("video_id").and_then(|v| v.as_str().map(String::from)),
+        video_id: alert
+            .payload
+            .get("video_id")
+            .and_then(|v| v.as_str().map(String::from)),
     };
 
     (axum::http::StatusCode::OK, Json(response)).into_response()

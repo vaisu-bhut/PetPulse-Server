@@ -3,7 +3,9 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, ModelTrait};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter, Set,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -141,10 +143,7 @@ pub async fn update_emergency_contact(
     Json(payload): Json<UpdateEmergencyContactRequest>,
 ) -> impl IntoResponse {
     // Verify contact belongs to user
-    let contact = match EmergencyContact::find_by_id(contact_id)
-        .one(&db)
-        .await
-    {
+    let contact = match EmergencyContact::find_by_id(contact_id).one(&db).await {
         Ok(Some(c)) if c.user_id == user_id => c,
         Ok(Some(_)) => {
             return (
@@ -222,10 +221,7 @@ pub async fn delete_emergency_contact(
     Path(contact_id): Path<i32>,
 ) -> impl IntoResponse {
     // Verify contact belongs to user
-    let contact = match EmergencyContact::find_by_id(contact_id)
-        .one(&db)
-        .await
-    {
+    let contact = match EmergencyContact::find_by_id(contact_id).one(&db).await {
         Ok(Some(c)) if c.user_id == user_id => c,
         Ok(Some(_)) => {
             return (

@@ -16,42 +16,24 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Alerts::SeverityLevel)
                             .string()
                             .default("low")
-                            .not_null()
+                            .not_null(),
                     )
                     // Critical condition indicators (JSON array)
-                    .add_column(
-                        ColumnDef::new(Alerts::CriticalIndicators)
-                            .json()
-                    )
+                    .add_column(ColumnDef::new(Alerts::CriticalIndicators).json())
                     // Recommended actions for user (JSON array)
-                    .add_column(
-                        ColumnDef::new(Alerts::RecommendedActions)
-                            .json()
-                    )
+                    .add_column(ColumnDef::new(Alerts::RecommendedActions).json())
                     // User notification tracking
-                    .add_column(
-                        ColumnDef::new(Alerts::UserNotifiedAt)
-                            .date_time()
-                    )
-                    .add_column(
-                        ColumnDef::new(Alerts::UserAcknowledgedAt)
-                            .date_time()
-                    )
-                    .add_column(
-                        ColumnDef::new(Alerts::UserResponse)
-                            .text()
-                    )
+                    .add_column(ColumnDef::new(Alerts::UserNotifiedAt).date_time())
+                    .add_column(ColumnDef::new(Alerts::UserAcknowledgedAt).date_time())
+                    .add_column(ColumnDef::new(Alerts::UserResponse).text())
                     .add_column(
                         ColumnDef::new(Alerts::NotificationSent)
                             .boolean()
                             .default(false)
-                            .not_null()
+                            .not_null(),
                     )
                     // Notification channels used (JSON object)
-                    .add_column(
-                        ColumnDef::new(Alerts::NotificationChannels)
-                            .json()
-                    )
+                    .add_column(ColumnDef::new(Alerts::NotificationChannels).json())
                     .to_owned(),
             )
             .await?;
