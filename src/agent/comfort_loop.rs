@@ -101,13 +101,16 @@ impl ComfortLoop {
 
         // 1. Persist Initial Alert
         // Parse pet_id from string to i32 (as per schema)
-        let db_pet_id = payload.pet_id.parse::<i32>().unwrap_or_else(|e| {
-            error!(
-                "Failed to parse pet_id '{}': {}. Using 1 as fallback.",
-                payload.pet_id, e
-            );
-            1
-        });
+        let db_pet_id = match payload.pet_id.parse::<i32>() {
+            Ok(id) => id,
+            Err(e) => {
+                error!(
+                    "Failed to parse pet_id '{}': {}. Aborting alert processing.",
+                    payload.pet_id, e
+                );
+                return;
+            }
+        };
 
         // Extract detailed fields from payload or context
         let severity_level = payload
@@ -308,13 +311,13 @@ impl ComfortLoop {
             _ => None,
         };
 
-        let (owner_email, owner_name, pet_name) = owner_info.unwrap_or_else(|| {
-            (
-                std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string()),
-                "Pet Owner".to_string(),
-                "Your Pet".to_string(),
-            )
-        });
+        let (owner_email, _owner_name, pet_name) = match owner_info {
+            Some((email, name, p_name)) => (email, name, p_name),
+            None => {
+                error!("CRITICAL: Failed to find owner info for pet_id={}. Cannot send critical alert.", db_pet_id);
+                return;
+            }
+        };
 
         let owner_phone = std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
 
@@ -524,43 +527,55 @@ impl ComfortLoop {
             }
             Intervention::NotifyUser(level) => {
                 info!("📱 Action: Notifying user (Level: {:?})", level);
-                
-                // Fetch owner email from DB
+
+                // Fetch owner email and pet name from DB
                 let db_pet_id = payload.pet_id.parse::<i32>().unwrap_or(1);
-                let owner_info = match crate::entities::pet::Entity::find_by_id(db_pet_id)
+                let info = match crate::entities::pet::Entity::find_by_id(db_pet_id)
                     .find_also_related(crate::entities::user::Entity)
                     .one(&self.db)
                     .await
                 {
-                    Ok(Some((_, Some(user)))) => Some((user.email, user.name)),
+                    Ok(Some((pet, Some(user)))) => Some((user.email, user.name, pet.name)),
                     _ => None,
                 };
 
-                let (owner_email, owner_name) = owner_info.unwrap_or_else(|| {
-                    (std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string()), "Pet Owner".to_string())
-                });
-                
-                let owner_phone = std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
-                
+                let (owner_email, _owner_name, pet_name) = match info {
+                    Some((email, name, p_name)) => (email, name, p_name),
+                    None => {
+                        error!(
+                            "Failed to find owner info for pet_id={}. Cannot notify user.",
+                            db_pet_id
+                        );
+                        return;
+                    }
+                };
+
+                let owner_phone =
+                    std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
+
                 let severity_str = match level {
                     NotificationLevel::Critical => "CRITICAL",
                     NotificationLevel::Standard => "HIGH",
                 };
-                
-                let video_link = payload.video_id.as_ref()
+
+                let video_link = payload
+                    .video_id
+                    .as_ref()
                     .map(|v| format!("https://petpulse.dashboard/videos/{}", v))
                     .unwrap_or_else(|| "https://petpulse.dashboard".to_string());
 
-                self.notifier.notify_critical_alert(
-                    &owner_email,
-                    &owner_phone,
-                    &owner_name,
-                    severity_str,
-                    payload.message.as_deref().unwrap_or("Alert triggered"),
-                    &[],
-                    &[],
-                    &video_link
-                ).await;
+                self.notifier
+                    .notify_critical_alert(
+                        &owner_email,
+                        &owner_phone,
+                        &pet_name,
+                        severity_str,
+                        payload.message.as_deref().unwrap_or("Alert triggered"),
+                        &[],
+                        &[],
+                        &video_link,
+                    )
+                    .await;
             }
             Intervention::LogOnly => info!("📝 Action: Logging alert only"),
         }

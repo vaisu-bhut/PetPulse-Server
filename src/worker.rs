@@ -265,13 +265,13 @@ async fn process_video(
                         .as_str()
                         .map(|s| s.to_string()));
                     active.is_unusual = Set(analysis_result["is_unusual"].as_bool().unwrap_or(false));
-                    
+
                     // Extract severity level (Phase 3 enhancement)
                     let severity_level = analysis_result["severity_level"]
                         .as_str()
                         .unwrap_or("low")
                         .to_string();
-                    
+
                     // Extract critical indicators if present
                     let critical_indicators = analysis_result.get("critical_indicators")
                         .and_then(|v| v.as_array())
@@ -281,7 +281,7 @@ async fn process_video(
                                 .collect::<Vec<String>>()
                         })
                         .unwrap_or_default();
-                    
+
                     // Extract recommended actions if present
                     let recommended_actions = analysis_result.get("recommended_actions")
                         .and_then(|v| v.as_array())
@@ -299,23 +299,23 @@ async fn process_video(
                         active.is_unusual,
                         severity_level
                     );
-                    
+
                     // Route alerts based on severity level (Phase 3)
                     if severity_level == "critical" {
                         // CRITICAL ALERT PATH
                         metrics::counter!("petpulse_critical_alerts_total", "pet_id" => active.pet_id.clone().unwrap().to_string()).increment(1);
-                        
+
                         tracing::warn!(
                             "🚨 CRITICAL alert detected for video_id={}, pet_id={}, indicators={:?}",
                             video_id,
                             active.pet_id.clone().unwrap(),
                             critical_indicators
                         );
-                        
+
                         let pet_id = active.pet_id.clone().unwrap();
                         let description = active.description.clone().unwrap().unwrap_or_else(|| "Critical health condition detected".to_string());
                         let mood = active.mood.clone().unwrap();
-                        
+
                         tokio::spawn(async move {
                             send_critical_alert_webhook(
                                 video_id,
@@ -329,11 +329,11 @@ async fn process_video(
                     } else if active.is_unusual.clone().unwrap() {
                         // NORMAL UNUSUAL BEHAVIOR PATH
                         metrics::counter!("petpulse_unusual_events_total", "pet_id" => active.pet_id.clone().unwrap().to_string()).increment(1);
-                        
+
                         let pet_id = active.pet_id.clone().unwrap();
                         let description = active.description.clone().unwrap().unwrap_or_else(|| "Unusual activity detected".to_string());
                         let mood = active.mood.clone().unwrap();
-                        
+
                         tokio::spawn(async move {
                             send_alert_webhook(video_id, pet_id, description, mood, severity_level).await;
                         });
@@ -360,7 +360,7 @@ async fn process_video(
                                 "Enqueued digest update for pet_id={} to digest_queue",
                                 v.pet_id
                             );
-                            
+
                             metrics::counter!("petpulse_video_processed_total").increment(1);
                         }
                         Err(e) => {
@@ -372,14 +372,14 @@ async fn process_video(
                 Err(e) => {
                     tracing::error!("Analysis failed for {}: {}", video_id, e);
                     metrics::counter!("petpulse_gemini_api_errors_total").increment(1);
-                    // We should also record duration here effectively, but it's inside the block. 
+                    // We should also record duration here effectively, but it's inside the block.
                     // Let's rely on the outer duration. But wait, "success" label differs.
                     // The outer block will record success=true even if this fails? No, the outer block blindly records success=true currently.
-                    // Correcting the outer block requires state. 
-                    // Since I can't easily change the outer block structure in this single-tool edit without making it huge, 
+                    // Correcting the outer block requires state.
+                    // Since I can't easily change the outer block structure in this single-tool edit without making it huge,
                     // I will leave the outer recording as "true" for now (or I should just remove "success" label from plan).
                     // Actually, let's fix it properly. I will add a variable `success` in outer scope.
-                    
+
                     if retry_count < 2 {
                         // Retry
                         let mut active: pet_video::ActiveModel = video.clone().into();
@@ -401,10 +401,10 @@ async fn process_video(
             let _ = tokio::fs::remove_file(&temp_file_path).await;
 
         }.instrument(tracing::info_span!("analyze_video_gemini")).await;
-        
+
         let duration = start_time.elapsed().as_secs_f64();
         metrics::histogram!("petpulse_video_processing_duration_seconds", "success" => "true").record(duration);
-        
+
     }.instrument(span).await;
 }
 
