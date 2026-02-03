@@ -6,7 +6,6 @@ use petpulse_server::{api, migrator};
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
 
-
 #[tokio::main]
 async fn main() {
     // Load .env if present (dotenvy)
@@ -44,7 +43,13 @@ async fn main() {
     petpulse_server::metrics::init_metrics(&db).await;
 
     // Use app logic directly here
-    let app = app(db, redis_client, gcs_client, prometheus_layer, metric_handle);
+    let app = app(
+        db,
+        redis_client,
+        gcs_client,
+        prometheus_layer,
+        metric_handle,
+    );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
     tracing::info!("listening on {}", addr);
@@ -75,7 +80,10 @@ fn app(
                 .patch(api::user::update_user)
                 .delete(api::user::delete_user),
         )
-        .route("/pets", get(api::pet::list_user_pets).post(api::pet::create_pet))
+        .route(
+            "/pets",
+            get(api::pet::list_user_pets).post(api::pet::create_pet),
+        )
         .route(
             "/pets/:id",
             get(api::pet::get_pet)
@@ -96,16 +104,40 @@ fn app(
         // Alert routes - protected
         .route("/alerts", get(api::critical_alerts::list_user_alerts))
         .route("/alerts/:id", get(api::critical_alerts::get_alert))
-        .route("/pets/:id/alerts", get(api::critical_alerts::list_pet_alerts))
-        .route("/alerts/:id/acknowledge", post(api::critical_alerts::acknowledge_alert))
-        .route("/alerts/:id/resolve", post(api::critical_alerts::resolve_alert))
+        .route(
+            "/pets/:id/alerts",
+            get(api::critical_alerts::list_pet_alerts),
+        )
+        .route(
+            "/alerts/:id/acknowledge",
+            post(api::critical_alerts::acknowledge_alert),
+        )
+        .route(
+            "/alerts/:id/resolve",
+            post(api::critical_alerts::resolve_alert),
+        )
         // Emergency Contacts routes - protected
-        .route("/emergency-contacts", get(api::emergency_contacts::list_emergency_contacts).post(api::emergency_contacts::create_emergency_contact))
-        .route("/emergency-contacts/:id", axum::routing::patch(api::emergency_contacts::update_emergency_contact).delete(api::emergency_contacts::delete_emergency_contact))
+        .route(
+            "/emergency-contacts",
+            get(api::emergency_contacts::list_emergency_contacts)
+                .post(api::emergency_contacts::create_emergency_contact),
+        )
+        .route(
+            "/emergency-contacts/:id",
+            axum::routing::patch(api::emergency_contacts::update_emergency_contact)
+                .delete(api::emergency_contacts::delete_emergency_contact),
+        )
         // Quick Actions routes - protected
-        .route("/alerts/:alert_id/quick-actions", post(api::quick_actions::create_quick_action).get(api::quick_actions::list_alert_quick_actions))
+        .route(
+            "/alerts/:alert_id/quick-actions",
+            post(api::quick_actions::create_quick_action)
+                .get(api::quick_actions::list_alert_quick_actions),
+        )
         // Daily digest routes - protected
-        .route("/pets/:id/digests", get(api::daily_digest::list_pet_digests))
+        .route(
+            "/pets/:id/digests",
+            get(api::daily_digest::list_pet_digests),
+        )
         .route_layer(axum::middleware::from_fn(api::middleware::auth_middleware));
 
     Router::new()
@@ -113,7 +145,10 @@ fn app(
         .merge(auth_routes)
         .merge(protected_routes)
         // Critical Alert Routes (public for Grafana dashboard)
-        .route("/api/alerts/critical", get(api::critical_alerts::get_pending_critical_alerts))
+        .route(
+            "/api/alerts/critical",
+            get(api::critical_alerts::get_pending_critical_alerts),
+        )
         .layer(Extension(db))
         .layer(Extension(redis_client))
         .layer(Extension(gcs_client))
@@ -133,7 +168,7 @@ fn app(
                     } else {
                         format!("{} {}", request.method(), request.uri().path())
                     };
-                    
+
                     // Simple IP extraction
                     let user_ip = request
                         .headers()
@@ -167,33 +202,38 @@ fn app(
                         latency = tracing::field::Empty,
                     )
                 })
-                .on_request(|_request: &axum::http::Request<axum::body::Body>, _span: &tracing::Span| {
-                    // Disable default "started processing request" log to reduce noise
-                })
-                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, span: &tracing::Span| {
-                    // We can't easily access request details here unless stored in span or extensions.
-                    // The span already captures method/uri from make_span_with.
-                    // However, to make them appear "first" or top-level in the JSON event (not nested in span),
-                    // we would need to pass them down or rely on the formatter flattening.
-                    // Since we enabled flatten_event(true), span fields might still be separated.
-                    // Let's rely on the Span fields for context, but ensure the message is clear.
-                    
-                    // To strictly satisfy "Request body starts with API endpoint", we'll rely on the field order
-                    // in the macro, though JSON key order is not guaranteed.
-                    
-                    span.record("status", tracing::field::display(response.status()));
-                    span.record("latency", tracing::field::debug(latency));
-                    
-                    tracing::info!(
-                        "request completed"
-                    );
-                }))
+                .on_request(
+                    |_request: &axum::http::Request<axum::body::Body>, _span: &tracing::Span| {
+                        // Disable default "started processing request" log to reduce noise
+                    },
+                )
+                .on_response(
+                    |response: &axum::http::Response<_>,
+                     latency: std::time::Duration,
+                     span: &tracing::Span| {
+                        // We can't easily access request details here unless stored in span or extensions.
+                        // The span already captures method/uri from make_span_with.
+                        // However, to make them appear "first" or top-level in the JSON event (not nested in span),
+                        // we would need to pass them down or rely on the formatter flattening.
+                        // Since we enabled flatten_event(true), span fields might still be separated.
+                        // Let's rely on the Span fields for context, but ensure the message is clear.
+
+                        // To strictly satisfy "Request body starts with API endpoint", we'll rely on the field order
+                        // in the macro, though JSON key order is not guaranteed.
+
+                        span.record("status", tracing::field::display(response.status()));
+                        span.record("latency", tracing::field::debug(latency));
+
+                        tracing::info!("request completed");
+                    },
+                ),
+        )
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin(
                     "http://localhost:3003"
                         .parse::<axum::http::HeaderValue>()
-                        .unwrap()
+                        .unwrap(),
                 )
                 .allow_methods([
                     axum::http::Method::GET,
@@ -202,7 +242,7 @@ fn app(
                     axum::http::Method::DELETE,
                 ])
                 .allow_headers([axum::http::header::CONTENT_TYPE])
-                .allow_credentials(true)
+                .allow_credentials(true),
         )
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024))

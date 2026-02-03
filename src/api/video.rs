@@ -8,7 +8,9 @@ use axum::{
 };
 use google_cloud_storage::client::Client as GcsClient;
 use google_cloud_storage::http::objects::get::GetObjectRequest;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, PaginatorTrait};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -181,7 +183,11 @@ pub async fn list_pet_videos(
         }
     };
 
-    let pet = pet::Entity::find_by_id(pet_id).one(&db).await.ok().flatten();
+    let pet = pet::Entity::find_by_id(pet_id)
+        .one(&db)
+        .await
+        .ok()
+        .flatten();
 
     let videos_with_pets: Vec<VideoWithPet> = videos
         .into_iter()
@@ -259,7 +265,7 @@ pub async fn serve_video(
     // Extract GCS path (remove gs:// prefix and split bucket/object)
     let file_path = video.file_path.trim_start_matches("gs://");
     let parts: Vec<&str> = file_path.splitn(2, '/').collect();
-    
+
     if parts.len() != 2 {
         tracing::error!("Invalid file path format: {}", video.file_path);
         return (
@@ -272,7 +278,11 @@ pub async fn serve_video(
     let bucket = parts[0];
     let object_name = parts[1];
 
-    tracing::info!("Fetching video from GCS: bucket={}, object={}", bucket, object_name);
+    tracing::info!(
+        "Fetching video from GCS: bucket={}, object={}",
+        bucket,
+        object_name
+    );
 
     // Fetch video from GCS
     let request = GetObjectRequest {
@@ -281,7 +291,10 @@ pub async fn serve_video(
         ..Default::default()
     };
 
-    match gcs_client.download_object(&request, &Default::default()).await {
+    match gcs_client
+        .download_object(&request, &Default::default())
+        .await
+    {
         Ok(data) => {
             tracing::info!("Successfully fetched video, size: {} bytes", data.len());
             // Return video file with proper content type

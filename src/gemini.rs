@@ -34,7 +34,10 @@ impl GeminiClient {
         self.generate_content(&file_uri).await
     }
 
-    pub async fn analyze_video_with_usage(&self, file_path: &str) -> Result<(Value, Option<Value>), String> {
+    pub async fn analyze_video_with_usage(
+        &self,
+        file_path: &str,
+    ) -> Result<(Value, Option<Value>), String> {
         // 1. Upload File
         let file_uri = self.upload_file(file_path).await?;
 
@@ -138,9 +141,10 @@ impl GeminiClient {
         Err("Timeout waiting for video processing".to_string())
     }
 
-
-
-    async fn generate_content_with_usage(&self, file_name: &str) -> Result<(Value, Option<Value>), String> {
+    async fn generate_content_with_usage(
+        &self,
+        file_name: &str,
+    ) -> Result<(Value, Option<Value>), String> {
         // Construct the model URL
         // User asked for "Gemini 3.0 Pro".
         // Note: As of now, only 1.5 is standard, but I'll plug in the env var `GEMINI_MODEL`.
@@ -258,7 +262,7 @@ impl GeminiClient {
             .map(|s| s.to_string())
             .ok_or("URI not found in file info".to_string())
     }
-    
+
     pub async fn generate_text(&self, prompt: &str) -> Result<String, String> {
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
@@ -287,7 +291,7 @@ impl GeminiClient {
         }
 
         let json: Value = res.json().await.map_err(|e| e.to_string())?;
-        
+
         // Extract text
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()

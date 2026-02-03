@@ -17,26 +17,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(QuickActions::AlertId)
-                            .uuid()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(QuickActions::AlertId).uuid().not_null())
                     .col(
                         ColumnDef::new(QuickActions::EmergencyContactId)
                             .integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(QuickActions::ActionType)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(QuickActions::Message)
-                            .text()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(QuickActions::ActionType).string().not_null())
+                    .col(ColumnDef::new(QuickActions::Message).text().not_null())
                     .col(ColumnDef::new(QuickActions::VideoClips).json())
                     .col(
                         ColumnDef::new(QuickActions::Status)

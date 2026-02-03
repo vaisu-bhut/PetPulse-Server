@@ -28,16 +28,8 @@ impl MigrationTrait for Migration {
                             .string()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(EmergencyContacts::Name)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(EmergencyContacts::Phone)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(EmergencyContacts::Name).string().not_null())
+                    .col(ColumnDef::new(EmergencyContacts::Phone).string().not_null())
                     .col(ColumnDef::new(EmergencyContacts::Email).string())
                     .col(ColumnDef::new(EmergencyContacts::Address).text())
                     .col(ColumnDef::new(EmergencyContacts::Notes).text())

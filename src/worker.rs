@@ -1,7 +1,6 @@
+use crate::agent::comfort_loop::{AlertPayload, AlertType};
 use crate::entities::{daily_digest, pet_video, DailyDigest, PetVideo};
 use crate::gemini::GeminiClient;
-use crate::agent::comfort_loop::{AlertPayload, AlertType};
-use tracing::Instrument;
 use chrono::{NaiveDate, Utc};
 use google_cloud_storage::client::Client as GcsClient;
 use google_cloud_storage::http::objects::download::Range;
@@ -10,17 +9,18 @@ use redis::AsyncCommands;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::Value;
 use std::sync::Arc;
+use tracing::Instrument;
 use uuid::Uuid;
 
 // Queue Monitoring
 pub async fn start_queue_monitor(redis_client: redis::Client) {
     let redis_client = Arc::new(redis_client);
-    
+
     // Spawn a background task
     tokio::spawn(async move {
         tracing::info!("Queue Monitor started");
         loop {
-             let mut conn = match redis_client.get_multiplexed_async_connection().await {
+            let mut conn = match redis_client.get_multiplexed_async_connection().await {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::error!("Queue Monitor: Failed to get redis conn: {}", e);
@@ -31,13 +31,15 @@ pub async fn start_queue_monitor(redis_client: redis::Client) {
 
             let video_queue_len: redis::RedisResult<u64> = conn.llen("video_queue").await;
             match video_queue_len {
-                Ok(len) => metrics::gauge!("petpulse_queue_depth", "queue" => "video_queue").set(len as f64),
+                Ok(len) => metrics::gauge!("petpulse_queue_depth", "queue" => "video_queue")
+                    .set(len as f64),
                 Err(e) => tracing::error!("Failed to get video_queue len: {}", e),
             }
 
             let digest_queue_len: redis::RedisResult<u64> = conn.llen("digest_queue").await;
             match digest_queue_len {
-                Ok(len) => metrics::gauge!("petpulse_queue_depth", "queue" => "digest_queue").set(len as f64),
+                Ok(len) => metrics::gauge!("petpulse_queue_depth", "queue" => "digest_queue")
+                    .set(len as f64),
                 Err(e) => tracing::error!("Failed to get digest_queue len: {}", e),
             }
 
@@ -102,7 +104,8 @@ pub async fn start_workers(
                             }
                         };
 
-                        process_video(video_id, &db, &gemini, &mut conn, &gcs_client, &payload).await;
+                        process_video(video_id, &db, &gemini, &mut conn, &gcs_client, &payload)
+                            .await;
                     }
                     Err(e) => {
                         tracing::error!("Worker {}: Redis error: {}", i, e);
@@ -140,11 +143,11 @@ async fn process_video(
 
     let span = tracing::info_span!("process_video_job", "otel.name" = "process_video_job", video_id = ?video_id);
     span.set_parent(parent_context);
-    
+
     let _enter = span.enter();
     tracing::info!("Dequeued video {} from video_queue", video_id);
     drop(_enter); // Drop guard to re-enter in async block via .instrument()
-    
+
     let start_time = std::time::Instant::now();
 
     async move {
@@ -475,7 +478,11 @@ async fn process_digest_update(
     db: &DatabaseConnection,
     worker_id: usize,
 ) {
-    let span = tracing::info_span!("process_digest_job", "otel.name" = "process_digest_job", pet_id = pet_id);
+    let span = tracing::info_span!(
+        "process_digest_job",
+        "otel.name" = "process_digest_job",
+        pet_id = pet_id
+    );
     process_digest_update_impl(pet_id, date, db, worker_id)
         .instrument(span)
         .await
@@ -675,7 +682,7 @@ async fn send_alert_webhook(
 ) {
     let agent_url = std::env::var("AGENT_SERVICE_URL")
         .unwrap_or_else(|_| "http://agent:3002/alert".to_string());
-    
+
     // Map severity_level to legacy severity field for backward compatibility
     let severity = match severity_level.as_str() {
         "info" => "low",
@@ -684,7 +691,7 @@ async fn send_alert_webhook(
         "high" => "high",
         _ => "medium",
     };
-    
+
     let alert_payload = AlertPayload {
         alert_id: Uuid::new_v4().to_string(),
         pet_id: pet_id.to_string(),
@@ -708,14 +715,14 @@ async fn send_alert_webhook(
         critical_indicators: None,
         recommended_actions: None,
     };
-    
+
     tracing::info!(
         "Sending alert webhook for video_id={}, pet_id={}, severity_level={}",
         video_id,
         pet_id,
         severity_level
     );
-    
+
     let client = reqwest::Client::new();
     match client.post(&agent_url).json(&alert_payload).send().await {
         Ok(resp) => {
@@ -725,7 +732,9 @@ async fn send_alert_webhook(
                 tracing::error!(
                     "Agent service returned error: {} - {}",
                     resp.status(),
-                    resp.text().await.unwrap_or_else(|_| "<unable to read response>".to_string())
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| "<unable to read response>".to_string())
                 );
             }
         }
@@ -749,7 +758,7 @@ async fn send_critical_alert_webhook(
 ) {
     let agent_url = std::env::var("AGENT_SERVICE_URL")
         .unwrap_or_else(|_| "http://agent:3002/alert/critical".to_string());
-    
+
     let alert_payload = AlertPayload {
         alert_id: Uuid::new_v4().to_string(),
         pet_id: pet_id.to_string(),
@@ -775,14 +784,14 @@ async fn send_critical_alert_webhook(
         critical_indicators: Some(critical_indicators.clone()),
         recommended_actions: Some(recommended_actions),
     };
-    
+
     tracing::warn!(
         "🚨 Sending CRITICAL alert webhook for video_id={}, pet_id={}, indicators={:?}",
         video_id,
         pet_id,
         critical_indicators
     );
-    
+
     let client = reqwest::Client::new();
     match client.post(&agent_url).json(&alert_payload).send().await {
         Ok(resp) => {
@@ -792,12 +801,17 @@ async fn send_critical_alert_webhook(
                 tracing::error!(
                     "❌ Agent service returned error for CRITICAL alert: {} - {}",
                     resp.status(),
-                    resp.text().await.unwrap_or_else(|_| "<unable to read response>".to_string())
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| "<unable to read response>".to_string())
                 );
             }
         }
         Err(e) => {
-            tracing::error!("❌ Failed to send CRITICAL alert webhook to agent service: {}", e);
+            tracing::error!(
+                "❌ Failed to send CRITICAL alert webhook to agent service: {}",
+                e
+            );
         }
     }
 }

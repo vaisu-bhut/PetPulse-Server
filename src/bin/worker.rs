@@ -9,11 +9,14 @@ async fn main() {
     petpulse_server::telemetry::init_telemetry("petpulse-worker");
 
     let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
-    
+
     // Spawn metrics server
     tokio::spawn(async move {
         let app = axum::Router::new()
-            .route("/metrics", axum::routing::get(|| async move { metric_handle.render() }))
+            .route(
+                "/metrics",
+                axum::routing::get(|| async move { metric_handle.render() }),
+            )
             .layer(prometheus_layer);
         let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 9091));
         tracing::info!("Metrics server listening on {}", addr);

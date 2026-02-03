@@ -1,4 +1,4 @@
-use crate::entities::{daily_digest, pet_video, DailyDigest, PetVideo, pet};
+use crate::entities::{daily_digest, pet, pet_video, DailyDigest, PetVideo};
 use axum::{
     extract::{Extension, Multipart, Path, Query},
     http::StatusCode,
@@ -8,7 +8,10 @@ use chrono::Utc;
 use google_cloud_storage::client::Client as GcsClient;
 use google_cloud_storage::http::objects::upload::{UploadObjectRequest, UploadType};
 use redis::AsyncCommands;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, PaginatorTrait};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
@@ -117,9 +120,10 @@ pub async fn upload_video(
                 .record("pet_id", pet_id)
                 .record("business_event", "Video uploaded to GCS and recorded in DB");
 
-            metrics::counter!("petpulse_videos_uploaded_total", "pet_id" => pet_id.to_string()).increment(1);
+            metrics::counter!("petpulse_videos_uploaded_total", "pet_id" => pet_id.to_string())
+                .increment(1);
             metrics::gauge!("petpulse_videos_total").increment(1.0);
-            
+
             // Increment per-pet count
             let db_clone = db.clone();
             tokio::spawn(async move {
@@ -141,16 +145,17 @@ pub async fn upload_video(
             use opentelemetry::propagation::TextMapPropagator;
             use opentelemetry_sdk::propagation::TraceContextPropagator;
             use tracing_opentelemetry::OpenTelemetrySpanExt;
-            
+
             let mut carrier = std::collections::HashMap::new();
             let propagator = TraceContextPropagator::new();
             let context = tracing::Span::current().context();
             propagator.inject_context(&context, &mut carrier);
 
-            let payload = serde_json::json!({ 
+            let payload = serde_json::json!({
                 "video_id": file_uuid,
-                "trace_context": carrier 
-            }).to_string();
+                "trace_context": carrier
+            })
+            .to_string();
 
             let _: () = conn.rpush("video_queue", payload).await.map_err(|e| {
                 (
@@ -370,8 +375,12 @@ pub struct DigestPaginationParams {
     pub page_size: u64,
 }
 
-fn default_digest_page() -> u64 { 1 }
-fn default_digest_page_size() -> u64 { 10 }
+fn default_digest_page() -> u64 {
+    1
+}
+fn default_digest_page_size() -> u64 {
+    10
+}
 
 #[derive(Serialize)]
 pub struct DigestResponse {
@@ -432,24 +441,31 @@ pub async fn list_pet_digests(
 
     match digests_result {
         Ok(digests) => {
-            let response: Vec<DigestResponse> = digests.into_iter().map(|digest| DigestResponse {
-                id: digest.id,
-                pet_id: digest.pet_id,
-                date: digest.date,
-                summary: digest.summary,
-                moods: digest.moods,
-                activities: digest.activities,
-                unusual_events: digest.unusual_events,
-                total_videos: digest.total_videos,
-                created_at: digest.created_at.to_rfc3339(),
-            }).collect();
-            
-            (StatusCode::OK, Json(DigestListResponse {
-                digests: response,
-                total,
-                page: params.page,
-                page_size: params.page_size,
-            })).into_response()
+            let response: Vec<DigestResponse> = digests
+                .into_iter()
+                .map(|digest| DigestResponse {
+                    id: digest.id,
+                    pet_id: digest.pet_id,
+                    date: digest.date,
+                    summary: digest.summary,
+                    moods: digest.moods,
+                    activities: digest.activities,
+                    unusual_events: digest.unusual_events,
+                    total_videos: digest.total_videos,
+                    created_at: digest.created_at.to_rfc3339(),
+                })
+                .collect();
+
+            (
+                StatusCode::OK,
+                Json(DigestListResponse {
+                    digests: response,
+                    total,
+                    page: params.page,
+                    page_size: params.page_size,
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!("Failed to fetch digests: {}", e);

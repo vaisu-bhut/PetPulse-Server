@@ -2,11 +2,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use petpulse_server::agent::comfort_loop::{AlertPayload, ComfortLoop};
+use sea_orm::Database;
 use std::net::SocketAddr;
-use petpulse_server::agent::comfort_loop::{ComfortLoop, AlertPayload};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use sea_orm::Database;
 use tracing::error;
 
 struct AppState {
@@ -17,7 +17,7 @@ struct AppState {
 async fn main() {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
-    
+
     tracing::info!("Starting PetPulse Agent Service...");
 
     // Initialize Prometheus Metrics
@@ -52,15 +52,16 @@ async fn main() {
         }
     });
 
-    let state = Arc::new(AppState {
-        tx,
-    });
+    let state = Arc::new(AppState { tx });
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/alert", post(handle_alert))
         .route("/alert/critical", post(handle_alert))
-        .route("/metrics", get(move || std::future::ready(metric_handle.render())))
+        .route(
+            "/metrics",
+            get(move || std::future::ready(metric_handle.render())),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
@@ -77,8 +78,12 @@ async fn handle_alert(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     Json(payload): Json<AlertPayload>,
 ) -> &'static str {
-    tracing::info!("Received alert webhook: alert_type={:?}, pet_id={}", payload.alert_type, payload.pet_id);
-    
+    tracing::info!(
+        "Received alert webhook: alert_type={:?}, pet_id={}",
+        payload.alert_type,
+        payload.pet_id
+    );
+
     // Send to channel, don't wait for processing
     match state.tx.send(payload).await {
         Ok(_) => "Queued",
@@ -88,4 +93,3 @@ async fn handle_alert(
         }
     }
 }
-

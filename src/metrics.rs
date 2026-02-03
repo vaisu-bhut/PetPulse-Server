@@ -1,5 +1,5 @@
+use crate::entities::{pet, pet_video, user};
 use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
-use crate::entities::{user, pet, pet_video};
 
 pub async fn init_metrics(db: &DatabaseConnection) {
     // Total Counts
@@ -18,12 +18,12 @@ pub async fn init_metrics(db: &DatabaseConnection) {
     // Let's iterate users for simplicity as cardinality is low in this demo.
     // Ideally use a join query: SELECT u.name, COUNT(p.id) FROM...
     // But for "init", simple iteration is safe enough for demo scale.
-    
-    use sea_orm::{QuerySelect, ModelTrait, LoaderTrait, ColumnTrait, QueryFilter};
-    
+
+    use sea_orm::{ColumnTrait, LoaderTrait, ModelTrait, QueryFilter, QuerySelect};
+
     let users = user::Entity::find().all(db).await.unwrap_or_default();
     // Load pets for all users? Or just count?
-    // Let's use a bespoke query for efficiency if possible, or just loop. 
+    // Let's use a bespoke query for efficiency if possible, or just loop.
     // Looping 21 users is instant.
     for u in users {
         let count = pet::Entity::find()
@@ -47,7 +47,9 @@ pub async fn init_metrics(db: &DatabaseConnection) {
 
     tracing::info!(
         "Initialized metrics: Users={}, Pets={}, Videos={}",
-        user_count, pet_count, video_count
+        user_count,
+        pet_count,
+        video_count
     );
 }
 
@@ -64,15 +66,18 @@ pub async fn increment_pet_videos(db: &DatabaseConnection, pet_id: i32) {
 }
 
 pub fn increment_critical_alerts(pet_id: i32) {
-    metrics::counter!("petpulse_critical_alerts_total", "pet_id" => pet_id.to_string()).increment(1);
+    metrics::counter!("petpulse_critical_alerts_total", "pet_id" => pet_id.to_string())
+        .increment(1);
 }
 
 pub fn increment_notifications_sent(channel: &str) {
-    metrics::counter!("petpulse_notifications_sent_total", "channel" => channel.to_string()).increment(1);
+    metrics::counter!("petpulse_notifications_sent_total", "channel" => channel.to_string())
+        .increment(1);
 }
 
 pub fn increment_notifications_failed(channel: &str) {
-    metrics::counter!("petpulse_notifications_failed_total", "channel" => channel.to_string()).increment(1);
+    metrics::counter!("petpulse_notifications_failed_total", "channel" => channel.to_string())
+        .increment(1);
 }
 
 pub fn record_acknowledgment_time(seconds: f64) {

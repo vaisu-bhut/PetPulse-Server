@@ -18,14 +18,15 @@ impl NotificationTemplates {
             .map(|i| format!("<li>{}</li>", i))
             .collect::<Vec<_>>()
             .join("");
-            
+
         let actions_html = recommended_actions
             .iter()
             .map(|a| format!("<li>{}</li>", a))
             .collect::<Vec<_>>()
             .join("");
 
-        format!(r#"
+        format!(
+            r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -83,14 +84,14 @@ impl NotificationTemplates {
     </div>
 </body>
 </html>
-"#, 
-        severity = severity.to_uppercase(),
-        pet_name = pet_name,
-        description = description,
-        started_at = started_at,
-        indicators_html = indicators_html,
-        actions_html = actions_html,
-        video_link = video_link
+"#,
+            severity = severity.to_uppercase(),
+            pet_name = pet_name,
+            description = description,
+            started_at = started_at,
+            indicators_html = indicators_html,
+            actions_html = actions_html,
+            video_link = video_link
         )
     }
 
@@ -107,10 +108,13 @@ impl NotificationTemplates {
         } else {
             description.to_string()
         };
-        
+
         format!(
             "🚨 PetPulse ALERT: {} - {}\nSeverity: {}\nView: {}",
-            pet_name, short_desc, severity.to_uppercase(), video_link
+            pet_name,
+            short_desc,
+            severity.to_uppercase(),
+            video_link
         )
     }
 }
