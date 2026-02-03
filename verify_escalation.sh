@@ -11,7 +11,7 @@ set -e
 # 5: High Severity + Quick Actions
 # ==============================================================================
 
-SERVER_URL="http://localhost:8000"
+SERVER_URL="https://preview.petpulse.clestiq.com"
 COOKIE_JAR="cookies_escalation.txt"
 EMAIL="escalation_test_$(date +%s)@petpulse.com"
 PASSWORD="password123"
