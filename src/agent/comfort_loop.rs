@@ -182,7 +182,7 @@ impl ComfortLoop {
         let intervention = self.decide_intervention(&payload, current_alert_count, &final_severity).await;
         
         // 4. Execute Action
-        self.execute_action(&intervention).await;
+        self.execute_action(&intervention, &payload).await;
 
         // 5. Update DB with Action
         let update_model = alerts::ActiveModel {
@@ -332,7 +332,7 @@ impl ComfortLoop {
                  // Limitation: Current Intervention enum is single-choice. 
                  // Workaround: We will execute the autonomous action here manually, and return NotifyUser.
                  let autonomous_backup = Intervention::PlayOwnerVoice;
-                 self.execute_action(&autonomous_backup).await;
+                 self.execute_action(&autonomous_backup, payload).await;
                  
                  Intervention::NotifyUser(NotificationLevel::Standard)
             }
@@ -424,7 +424,7 @@ impl ComfortLoop {
         info!("Generated quick actions for alert {} (Severity: {})", alert_id, severity);
     }
 
-    async fn execute_action(&self, action: &Intervention) {
+    async fn execute_action(&self, action: &Intervention, payload: &AlertPayload) {
         info!("Executing intervention: {:?}", action);
         // TODO: Call Smart Home API / IoT Hub
         match action {
@@ -432,7 +432,32 @@ impl ComfortLoop {
             Intervention::PlayOwnerVoice => info!("🗣️ Action: Playing owner voice note"),
             Intervention::DispenseTreat => info!("🍬 Action: Dispensing treat"),
             Intervention::AdjustEnvironment(env_action) => info!("💡 Action: Adjusting environment: {:?}", env_action),
-            Intervention::NotifyUser(level) => info!("📱 Action: Notifying user (Level: {:?})", level),
+            Intervention::NotifyUser(level) => {
+                info!("📱 Action: Notifying user (Level: {:?})", level);
+                
+                let owner_email = std::env::var("OWNER_EMAIL").unwrap_or("test@example.com".to_string());
+                let owner_phone = std::env::var("OWNER_PHONE").unwrap_or("+15550000000".to_string());
+                
+                let severity_str = match level {
+                    NotificationLevel::Critical => "CRITICAL",
+                    NotificationLevel::Standard => "HIGH",
+                };
+                
+                let video_link = payload.video_id.as_ref()
+                    .map(|v| format!("https://petpulse.dashboard/videos/{}", v))
+                    .unwrap_or_else(|| "https://petpulse.dashboard".to_string());
+
+                self.notifier.notify_critical_alert(
+                    &owner_email,
+                    &owner_phone,
+                    "Your Pet",
+                    severity_str,
+                    payload.message.as_deref().unwrap_or("Alert triggered"),
+                    &[],
+                    &[],
+                    &video_link
+                ).await;
+            },
             Intervention::LogOnly => info!("📝 Action: Logging alert only"),
         }
     }
