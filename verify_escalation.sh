@@ -13,7 +13,7 @@ set -e
 
 SERVER_URL="https://preview.petpulse.clestiq.com"
 COOKIE_JAR="cookies_escalation.txt"
-EMAIL="vasu@badgesix.com"
+EMAIL="bhutvasu298@gmail.com"
 PASSWORD="password123"
 
 # Colors
